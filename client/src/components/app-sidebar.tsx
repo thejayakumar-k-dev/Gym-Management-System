@@ -77,7 +77,11 @@ const menuItems = [
   },
 ];
 
-export function AppSidebar() {
+interface AppSidebarProps {
+  onLogout?: () => void;
+}
+
+export function AppSidebar({ onLogout }: AppSidebarProps) {
   const [location] = useLocation();
   const { theme, setTheme } = useTheme();
   const { settings } = useGymSettings();
@@ -159,6 +163,7 @@ export function AppSidebar() {
         <Button
           variant="ghost"
           className="w-full justify-start gap-3 h-auto px-4 py-3"
+          onClick={onLogout}
           data-testid="button-logout"
         >
           <LogOut className="h-5 w-5 flex-shrink-0" />

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -32,8 +32,7 @@ import { insertStudentSchema } from "@shared/schema";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
-const formSchema = insertStudentSchema.omit({ expiryDate: true }).extend({
-  registerNo: z.string().min(1, "Register number is required"),
+const formSchema = insertStudentSchema.omit({ expiryDate: true, registerNo: true }).extend({
   name: z.string().min(1, "Name is required"),
   phone: z.string().min(10, "Valid phone number is required"),
 });
@@ -64,10 +63,18 @@ export default function Students() {
 
   const students = studentsData ? [...studentsData].reverse() : undefined;
 
+  const nextRegisterNo = useMemo(() => {
+    if (!studentsData || studentsData.length === 0) return "1";
+    const max = studentsData.reduce((m, s) => {
+      const n = parseInt(s.registerNo, 10);
+      return Number.isFinite(n) && n > m ? n : m;
+    }, 0);
+    return String(max + 1);
+  }, [studentsData]);
+
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      registerNo: "",
       name: "",
       phone: "",
       address: "",
@@ -171,7 +178,6 @@ export default function Students() {
     if (student) {
       setEditingStudent(student);
       form.reset({
-        registerNo: student.registerNo,
         name: student.name,
         phone: student.phone,
         address: student.address,
@@ -180,7 +186,6 @@ export default function Students() {
     } else {
       setEditingStudent(null);
       form.reset({
-        registerNo: "",
         name: "",
         phone: "",
         address: "",
@@ -337,19 +342,16 @@ export default function Students() {
           </DialogHeader>
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="registerNo"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Register Number <span className="text-red-500">*</span></FormLabel>
-                    <FormControl>
-                      <Input {...field} data-testid="input-register-no" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Register Number</label>
+                <Input
+                  value={isLoading ? "..." : editingStudent ? editingStudent.registerNo : nextRegisterNo}
+                  disabled
+                  className="bg-muted text-muted-foreground"
+                />
+              </div>
+
               <FormField
                 control={form.control}
                 name="name"

@@ -9,6 +9,8 @@ import {
   type InsertPayment,
   type Attendance,
   type InsertAttendance,
+  type Vendor,
+  type InsertVendor,
 } from "@shared/schema";
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -25,8 +27,8 @@ export interface IStorage {
   getStudents(): Promise<Student[]>;
   getStudentById(id: number): Promise<Student | undefined>;
   getStudentByRegisterNo(registerNo: string): Promise<Student | undefined>;
-  createStudent(student: InsertStudent): Promise<Student>;
-  updateStudent(id: number, student: Partial<InsertStudent>): Promise<Student>;
+  createStudent(student: InsertStudent & { expiryDate?: string | null }): Promise<Student>;
+  updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }): Promise<Student>;
   deleteStudent(id: number): Promise<void>;
 
   // Payments
@@ -35,6 +37,12 @@ export interface IStorage {
   createPayment(payment: InsertPayment): Promise<Payment>;
   updatePayment(id: number, payment: Partial<Omit<InsertPayment, 'studentId' | 'registerNo' | 'studentName'>>): Promise<Payment>;
   deletePayment(id: number): Promise<void>;
+
+  // Vendors
+  getVendors(): Promise<Vendor[]>;
+  getVendorById(id: number): Promise<Vendor | undefined>;
+  createVendor(vendor: InsertVendor): Promise<Vendor>;
+  updateVendor(id: number, vendor: Partial<InsertVendor>): Promise<Vendor>;
 
   // Attendance
   getAttendanceByDate(date: string): Promise<Attendance[]>;
@@ -146,7 +154,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async createStudent(student: InsertStudent): Promise<Student> {
+  async createStudent(student: InsertStudent & { expiryDate?: string | null }): Promise<Student> {
     try {
       const dbStudent = {
         register_no: student.registerNo,
@@ -182,7 +190,7 @@ export class SupabaseStorage implements IStorage {
     }
   }
 
-  async updateStudent(id: number, student: Partial<InsertStudent>): Promise<Student> {
+  async updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }): Promise<Student> {
     try {
       const dbStudent: any = {};
       if (student.registerNo) dbStudent.register_no = student.registerNo;
@@ -372,6 +380,100 @@ export class SupabaseStorage implements IStorage {
       if (error) throw error;
     } catch (error) {
       console.error("Error deleting payment:", error);
+      throw error;
+    }
+  }
+
+  // Vendors
+  async getVendors(): Promise<Vendor[]> {
+    try {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("*")
+        .order("id", { ascending: false });
+
+      if (error) throw error;
+      return (data || []).map(mapVendorRow);
+    } catch (error) {
+      console.error("Error fetching vendors:", error);
+      throw error;
+    }
+  }
+
+  async getVendorById(id: number): Promise<Vendor | undefined> {
+    try {
+      const { data, error } = await supabase
+        .from("vendors")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (error && error.code !== "PGRST116") throw error;
+      if (!data) return undefined;
+
+      return mapVendorRow(data);
+    } catch (error) {
+      console.error("Error fetching vendor by id:", error);
+      throw error;
+    }
+  }
+
+  async createVendor(vendor: InsertVendor): Promise<Vendor> {
+    try {
+      const dbVendor = {
+        first_name: vendor.firstName,
+        last_name: vendor.lastName,
+        phone: vendor.phone,
+        email: vendor.email || null,
+        address_line1: vendor.addressLine1 || null,
+        address_line2: vendor.addressLine2 || null,
+        city: vendor.city || null,
+        state: vendor.state || null,
+        zipcode: vendor.zipcode || null,
+        area_name: vendor.areaName || null,
+        status: vendor.status || "active",
+      };
+
+      const { data, error } = await supabase
+        .from("vendors")
+        .insert([dbVendor])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return mapVendorRow(data);
+    } catch (error) {
+      console.error("Error creating vendor:", error);
+      throw error;
+    }
+  }
+
+  async updateVendor(id: number, vendor: Partial<InsertVendor>): Promise<Vendor> {
+    try {
+      const dbVendor: any = {};
+      if (vendor.firstName !== undefined) dbVendor.first_name = vendor.firstName;
+      if (vendor.lastName !== undefined) dbVendor.last_name = vendor.lastName;
+      if (vendor.phone !== undefined) dbVendor.phone = vendor.phone;
+      if (vendor.email !== undefined) dbVendor.email = vendor.email;
+      if (vendor.addressLine1 !== undefined) dbVendor.address_line1 = vendor.addressLine1;
+      if (vendor.addressLine2 !== undefined) dbVendor.address_line2 = vendor.addressLine2;
+      if (vendor.city !== undefined) dbVendor.city = vendor.city;
+      if (vendor.state !== undefined) dbVendor.state = vendor.state;
+      if (vendor.zipcode !== undefined) dbVendor.zipcode = vendor.zipcode;
+      if (vendor.areaName !== undefined) dbVendor.area_name = vendor.areaName;
+      if (vendor.status !== undefined) dbVendor.status = vendor.status;
+
+      const { data, error } = await supabase
+        .from("vendors")
+        .update(dbVendor)
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return mapVendorRow(data);
+    } catch (error) {
+      console.error("Error updating vendor:", error);
       throw error;
     }
   }
@@ -572,3 +674,21 @@ export class SupabaseStorage implements IStorage {
 }
 
 export const storage = new SupabaseStorage();
+
+function mapVendorRow(row: any): Vendor {
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    phone: row.phone,
+    email: row.email ?? null,
+    addressLine1: row.address_line1 ?? null,
+    addressLine2: row.address_line2 ?? null,
+    city: row.city ?? null,
+    state: row.state ?? null,
+    zipcode: row.zipcode ?? null,
+    areaName: row.area_name ?? null,
+    status: row.status,
+    createdAt: new Date(row.created_at),
+  };
+}

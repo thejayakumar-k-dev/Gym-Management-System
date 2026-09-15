@@ -24,6 +24,31 @@ export const insertStudentSchema = createInsertSchema(students).omit({
 export type InsertStudent = z.infer<typeof insertStudentSchema>;
 export type Student = typeof students.$inferSelect;
 
+// Vendors table
+export const vendors = pgTable("vendors", {
+  id: serial("id").primaryKey(),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name").notNull(),
+  phone: varchar("phone", { length: 20 }).notNull(),
+  email: text("email"),
+  addressLine1: text("address_line1"),
+  addressLine2: text("address_line2"),
+  city: text("city"),
+  state: text("state"),
+  zipcode: varchar("zipcode", { length: 20 }),
+  areaName: text("area_name"),
+  status: varchar("status", { length: 20 }).notNull().default("active"), // 'active' or 'inactive'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertVendorSchema = createInsertSchema(vendors).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
+export type Vendor = typeof vendors.$inferSelect;
+
 // Payments table
 export const payments = pgTable("payments", {
   id: serial("id").primaryKey(),
