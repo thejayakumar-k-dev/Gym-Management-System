@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema } from "@shared/schema";
+import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard stats
@@ -39,15 +39,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/students", async (req, res) => {
     try {
-      const validatedData = insertStudentSchema.parse(req.body);
-      
-      // Check if register number already exists
-      const existing = await storage.getStudentByRegisterNo(validatedData.registerNo);
-      if (existing) {
-        return res.status(400).json({ error: "Register number already exists" });
-      }
+      const validatedData = insertStudentSchema.omit({ registerNo: true }).parse(req.body);
 
-      const student = await storage.createStudent(validatedData);
+      // Auto-generate sequential register number: 1, 2, 3, ...
+      const allStudents = await storage.getStudents();
+      const maxNum = allStudents.reduce((max, s) => {
+        const n = parseInt(s.registerNo, 10);
+        return Number.isFinite(n) && n > max ? n : max;
+      }, 0);
+      const registerNo = String(maxNum + 1);
+
+      const student = await storage.createStudent({ ...validatedData, registerNo });
       res.status(201).json(student);
     } catch (error: any) {
       if (error.name === "ZodError") {
@@ -84,6 +86,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete student" });
+    }
+  });
+
+  // Vendors endpoints
+  app.get("/api/vendors", async (_req, res) => {
+    try {
+      const vendors = await storage.getVendors();
+      res.json(vendors);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vendors" });
+    }
+  });
+
+  app.get("/api/vendors/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const vendor = await storage.getVendorById(id);
+      if (!vendor) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+      res.json(vendor);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vendor" });
+    }
+  });
+
+  app.post("/api/vendors", async (req, res) => {
+    try {
+      const validatedData = insertVendorSchema.parse(req.body);
+      const vendor = await storage.createVendor(validatedData);
+      res.status(201).json(vendor);
+    } catch (error: any) {
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid vendor data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create vendor" });
+    }
+  });
+
+  app.patch("/api/vendors/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const vendor = await storage.getVendorById(id);
+      if (!vendor) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+
+      const updatedVendor = await storage.updateVendor(id, req.body);
+      res.json(updatedVendor);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid vendor data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update vendor" });
     }
   });
 
