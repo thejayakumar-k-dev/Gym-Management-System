@@ -213,6 +213,66 @@ export default function VendorAccounts() {
     },
   });
 
+  // Dedicated mutations for the Add Days / Update Credits dialog.
+  // These use separate mutations from the main form so their onSuccess
+  // only closes the add-days dialog, not the main account dialog.
+
+  /**
+   * Radix UI Dialog adds scroll-lock styles and a FocusScope to document.body
+   * while open. If cleanup is interrupted (e.g. by a React re-render mid-animation),
+   * the body can be left with pointer-events:none or overflow:hidden, freezing the UI.
+   * This helper forcibly restores the body after dialog close.
+   */
+  const forceRestoreBody = () => {
+    requestAnimationFrame(() => {
+      document.body.style.pointerEvents = "";
+      document.body.style.overflow = "";
+      document.body.removeAttribute("data-scroll-locked");
+    });
+  };
+
+  const addDaysCreateMutation = useMutation({
+    mutationFn: (data: {
+      vendorId: number;
+      availableDays: number;
+      creditDays: number;
+      usedCredits: number;
+    }) => apiRequest("POST", "/api/vendor-accounts", data),
+    onSuccess: () => {
+      setAddDaysOpen(false);
+      setAddDaysForm(EMPTY_ADD_DAYS_FORM);
+      forceRestoreBody();
+      toast({ title: "Saved successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/vendor-accounts"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to save", variant: "destructive" });
+    },
+  });
+
+  const addDaysUpdateMutation = useMutation({
+    mutationFn: ({
+      id,
+      ...data
+    }: {
+      id: number;
+      vendorId: number;
+      availableDays: number;
+      creditDays: number;
+      usedCredits: number;
+    }) => apiRequest("PATCH", `/api/vendor-accounts/${id}`, data),
+    onSuccess: () => {
+      setAddDaysOpen(false);
+      setAddDaysForm(EMPTY_ADD_DAYS_FORM);
+      forceRestoreBody();
+      toast({ title: "Saved successfully" });
+      queryClient.invalidateQueries({ queryKey: ["/api/vendor-accounts"] });
+    },
+    onError: () => {
+      toast({ title: "Failed to save", variant: "destructive" });
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
       apiRequest("DELETE", `/api/vendor-accounts/${id}`),
@@ -487,7 +547,8 @@ export default function VendorAccounts() {
                     {(() => {
                       const remaining = Math.max(row.creditDays - row.usedCredits, 0);
                       const total = row.creditDays;
-                      const isBlocked = total === 0 || remaining === 0;
+                      const hasAvailableDays = row.availableDays > 0;
+                      const isBlocked = !hasAvailableDays && (total === 0 || remaining === 0);
                       if (isBlocked) {
                         return (
                           <Badge
@@ -519,13 +580,13 @@ export default function VendorAccounts() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-gray-500 hover:text-gray-900"
+                          className="h-8 w-8 text-gray-500 hover:text-gray-900 relative z-30"
                           data-testid={`button-account-actions-${row.vendor.id}`}
                         >
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuContent align="end" className="w-52 z-50">
                         <DropdownMenuItem
                           className="cursor-pointer gap-2"
                           data-testid={`menu-view-history-${row.vendor.id}`}
@@ -705,7 +766,7 @@ export default function VendorAccounts() {
       </Dialog>
 
       {/* ── Add Account Days dialog ── */}
-      <Dialog open={addDaysOpen} onOpenChange={(open) => !open && setAddDaysOpen(false)}>
+      <Dialog open={addDaysOpen} onOpenChange={(open) => { if (!open && !addDaysUpdateMutation.isPending && !addDaysCreateMutation.isPending) setAddDaysOpen(false); }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -772,11 +833,13 @@ export default function VendorAccounts() {
               type="button"
               variant="ghost"
               onClick={() => setAddDaysOpen(false)}
+              disabled={addDaysUpdateMutation.isPending || addDaysCreateMutation.isPending}
             >
               Cancel
             </Button>
             <Button
               type="button"
+              disabled={addDaysUpdateMutation.isPending || addDaysCreateMutation.isPending}
               onClick={() => {
                 const days = Number(addDaysForm.balanceDays || 0);
                 if (!days || days <= 0) {
@@ -794,29 +857,34 @@ export default function VendorAccounts() {
                     usedCredits: 0,
                   };
                   if (existingAccount) {
-                    updateMutation.mutate({ id: existingAccount.id, ...payload });
+                    addDaysUpdateMutation.mutate({ id: existingAccount.id, ...payload });
                   } else {
-                    createMutation.mutate(payload);
+                    addDaysCreateMutation.mutate(payload);
                   }
                 } else {
+                  // When adding available days:
+                  // 1. Reduce outstanding credits from new available days
+                  // 2. Renew credit days to match
+                  // 3. Reset used credits
+                  const outstanding = existingAccount?.usedCredits ?? 0;
+                  const adjustedDays = Math.max(days - outstanding, 0);
                   const payload = {
                     vendorId,
-                    availableDays: days,
-                    creditDays: existingAccount?.creditDays ?? 0,
-                    usedCredits: existingAccount?.usedCredits ?? 0,
+                    availableDays: adjustedDays,
+                    creditDays: days,
+                    usedCredits: 0,
                   };
                   if (existingAccount) {
-                    updateMutation.mutate({ id: existingAccount.id, ...payload });
+                    addDaysUpdateMutation.mutate({ id: existingAccount.id, ...payload });
                   } else {
-                    createMutation.mutate(payload);
+                    addDaysCreateMutation.mutate(payload);
                   }
                 }
-                setAddDaysOpen(false);
               }}
               className="bg-red-600 hover:bg-red-700 text-white"
               data-testid="button-save-add-days"
             >
-              Save
+              {addDaysUpdateMutation.isPending || addDaysCreateMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -968,7 +1036,7 @@ export default function VendorAccounts() {
                   </div>
                   {!serviceCharge?.hasKeys && (
                     <p className="mt-2 text-xs text-amber-600">
-                      No Supabase keys configured for this vendor — user count is
+                      No Neon project configured for this vendor — user count is
                       unavailable, showing the minimum charge.
                     </p>
                   )}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
-import { supabase } from "@/lib/supabase";
+import { getSession, signOut } from "@/lib/auth";
 import { isAdminUser } from "@/lib/admin";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -45,19 +45,13 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    getSession().then(({ data }) => {
+      setUser(data?.session?.user ?? null);
+      setAuthLoading(false);
+    }).catch(() => {
+      setUser(null);
       setAuthLoading(false);
     });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setAuthLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
   }, []);
 
   if (authLoading) {
@@ -71,7 +65,11 @@ function App() {
   if (!user) {
     return (
       <ThemeProvider defaultTheme="light">
-        <LoginPage onLogin={() => {}} />
+        <LoginPage onLogin={() => {
+          getSession().then(({ data }) => {
+            setUser(data?.session?.user ?? null);
+          });
+        }} />
       </ThemeProvider>
     );
   }
@@ -92,7 +90,8 @@ function App() {
   }
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
+    setUser(null);
   };
 
   const style = {

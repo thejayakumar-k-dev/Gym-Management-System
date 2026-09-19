@@ -68,7 +68,7 @@ export const vendors = pgTable("vendors", {
   zipcode: varchar("zipcode", { length: 20 }),
   areaName: text("area_name"),
   status: varchar("status", { length: 20 }).notNull().default("active"), // 'active' or 'inactive'
-  authUid: text("auth_uid"), // Supabase auth user UID for vendor login
+  authUid: text("auth_uid"), // Neon Auth user ID for vendor login
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -165,22 +165,25 @@ export const insertVendorAccountSchema = createInsertSchema(vendorAccounts)
 export type InsertVendorAccount = z.infer<typeof insertVendorAccountSchema>;
 export type VendorAccount = typeof vendorAccounts.$inferSelect;
 
-// Vendor Supabase Keys table
-export const vendorSupabaseKeys = pgTable("vendor_supabase_keys", {
+// Vendor Neon Projects table
+// Stores Neon project credentials for each vendor/gym.
+// Currently only "gym-admin" (the admin project) is configured;
+// each future gym will have its own row here.
+export const vendorNeonProjects = pgTable("vendor_neon_projects", {
   id: serial("id").primaryKey(),
   vendorId: integer("vendor_id")
     .notNull()
     .references(() => vendors.id, { onDelete: "cascade" }),
-  supabaseUrl: text("supabase_url").notNull(),
-  anonKey: text("anon_key").notNull(),
+  authUrl: text("auth_url").notNull(),
+  apiKey: text("api_key").notNull(),
   databaseUrl: text("database_url").notNull(),
-  serviceRoleKey: text("service_role_key").notNull(),
+  authSecret: text("auth_secret").notNull(),
   port: integer("port").notNull().default(5000),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertVendorSupabaseKeySchema = createInsertSchema(
-  vendorSupabaseKeys
+export const insertVendorNeonProjectSchema = createInsertSchema(
+  vendorNeonProjects
 )
   .omit({
     id: true,
@@ -188,13 +191,13 @@ export const insertVendorSupabaseKeySchema = createInsertSchema(
   })
   .extend({
     vendorId: z.coerce.number().int().positive("Select a vendor"),
-    supabaseUrl: z
+    authUrl: z
       .string()
-      .min(1, "Supabase URL is required")
-      .url("Enter a valid Supabase URL"),
-    anonKey: z.string().min(1, "Anon key is required"),
+      .min(1, "Neon Auth URL is required")
+      .url("Enter a valid Neon Auth URL"),
+    apiKey: z.string().min(1, "API key is required"),
     databaseUrl: z.string().min(1, "Database URL is required"),
-    serviceRoleKey: z.string().min(1, "Service role key is required"),
+    authSecret: z.string().min(1, "Auth secret is required"),
     port: z.coerce
       .number()
       .int()
@@ -203,10 +206,10 @@ export const insertVendorSupabaseKeySchema = createInsertSchema(
       .default(5000),
   });
 
-export type InsertVendorSupabaseKey = z.infer<
-  typeof insertVendorSupabaseKeySchema
+export type InsertVendorNeonProject = z.infer<
+  typeof insertVendorNeonProjectSchema
 >;
-export type VendorSupabaseKey = typeof vendorSupabaseKeys.$inferSelect;
+export type VendorNeonProject = typeof vendorNeonProjects.$inferSelect;
 
 // Vendor Service Charge Plans table
 // Service charge = max(users * perUserCharge, defaultPrice)
@@ -284,7 +287,7 @@ export type VendorServiceChargeSummary = {
   hasKeys: boolean;
 };
 
-// Aggregated summary report pulled from a vendor's own Supabase database.
+// Aggregated summary report pulled from a vendor's own Neon database.
 export type VendorReport = {
   totalMembers: number;
   activeMembers: number;

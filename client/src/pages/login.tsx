@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { signInWithPassword, signOut } from "@/lib/auth";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
@@ -58,17 +58,17 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
     const fakeEmail = `${phone}@gmail.com`;
 
-    const { error: signInError } = await supabase.auth.signInWithPassword({
+    const { error: signInError } = await signInWithPassword({
       email: fakeEmail,
       password,
     });
 
     if (signInError) {
       setLoading(false);
-      if (signInError.message.includes("Invalid login")) {
+      if (signInError.message?.includes("Invalid login") || signInError.message?.includes("Invalid")) {
         setError("Invalid phone number or password");
       } else {
-        setError(signInError.message);
+        setError(signInError.message || "Sign in failed");
       }
       return;
     }
@@ -83,7 +83,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         const status = await res.json();
         if (status?.blocked) {
           // Blocked vendor: sign out immediately and show pay & unlock screen
-          await supabase.auth.signOut();
+          await signOut();
           setBlockedInfo({
             vendorName: status.vendorName,
             businessName: status.businessName,
