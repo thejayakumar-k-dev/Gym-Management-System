@@ -135,7 +135,7 @@ export default function ModifyPayments() {
             </div>
           ) : payments && payments.length > 0 ? (
             <div className="rounded-md border">
-              <Table>
+              <Table className="min-w-[820px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Token #</TableHead>

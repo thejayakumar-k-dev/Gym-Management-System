@@ -126,7 +126,7 @@ export default function PaymentHistory() {
             </div>
           ) : filteredPayments && filteredPayments.length > 0 ? (
             <div className="rounded-md border">
-              <Table>
+              <Table className="min-w-[720px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Token #</TableHead>

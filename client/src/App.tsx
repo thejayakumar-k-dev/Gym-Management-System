@@ -105,13 +105,13 @@ function App() {
       <ThemeProvider defaultTheme="light">
         <TooltipProvider>
           <SidebarProvider style={style as React.CSSProperties}>
-            <div className="flex h-screen w-full">
+            <div className="flex h-dvh w-full">
               <AppSidebar onLogout={handleLogout} />
               <div className="flex flex-col flex-1 overflow-hidden">
-                <header className="flex items-center h-14 px-6 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                <header className="flex items-center h-14 px-4 sm:px-6 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
                   <SidebarTrigger data-testid="button-sidebar-toggle" />
                 </header>
-                <main className="flex-1 overflow-auto p-6 bg-background">
+                <main className="flex-1 overflow-auto p-4 sm:p-6 bg-background">
                   <div className="max-w-7xl mx-auto">
                     <Router />
                   </div>

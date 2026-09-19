@@ -70,7 +70,7 @@ export default function Dashboard() {
         <p className="text-sm text-muted-foreground mt-1">Welcome to {settings.name || "GymDesk"} Management System</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
         {statCards.map((stat) => (
           <Card key={stat.title} data-testid={`card-${stat.title.toLowerCase().replace(/\s+/g, '-')}`}>
             <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
@@ -107,14 +107,14 @@ export default function Dashboard() {
               {expiredMembers.map((member) => (
                 <div
                   key={member.id}
-                  className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 rounded-md"
+                  className="flex items-center justify-between gap-3 p-4 bg-white dark:bg-slate-900 rounded-md"
                   data-testid={`expired-member-${member.id}`}
                 >
-                  <div>
-                    <p className="font-semibold text-foreground">{member.name}</p>
+                  <div className="min-w-0">
+                    <p className="font-semibold text-foreground truncate">{member.name}</p>
                     <p className="text-sm text-muted-foreground">Reg: {member.registerNo}</p>
                   </div>
-                  <p className="font-bold text-red-600 dark:text-red-400">EXPIRED</p>
+                  <p className="font-bold text-red-600 dark:text-red-400 shrink-0">EXPIRED</p>
                 </div>
               ))}
             </div>
