@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { log } from "./vite";
-import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorSupabaseKeySchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, ADMIN_CONTACT_NUMBER } from "@shared/schema";
+import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, ADMIN_CONTACT_NUMBER } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard stats
@@ -167,7 +167,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // One-click repair: create missing Supabase auth users for vendors and
+  // One-click repair: create missing Neon Auth users for vendors and
   // link any unlinked auth_uids. Safe to run repeatedly.
   app.post("/api/vendors/backfill-auth", async (_req, res) => {
     try {
@@ -293,76 +293,76 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Vendor Supabase Keys endpoints
-  app.get("/api/vendor-supabase-keys", async (_req, res) => {
+  // Vendor Neon Projects endpoints
+  app.get("/api/vendor-neon-projects", async (_req, res) => {
     try {
-      const keys = await storage.getVendorSupabaseKeys();
-      res.json(keys);
+      const projects = await storage.getVendorNeonProjects();
+      res.json(projects);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch vendor supabase keys" });
+      res.status(500).json({ error: "Failed to fetch vendor Neon projects" });
     }
   });
 
-  // Admin keys come from .env and are always returned masked.
-  app.get("/api/admin-supabase-config", async (_req, res) => {
+  // Admin config comes from .env and is always returned masked.
+  app.get("/api/admin-neon-config", async (_req, res) => {
     try {
-      const config = await storage.getAdminSupabaseConfig();
+      const config = await storage.getAdminNeonConfig();
       res.json(config);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch admin supabase config" });
+      res.status(500).json({ error: "Failed to fetch admin Neon config" });
     }
   });
 
-  app.post("/api/vendor-supabase-keys", async (req, res) => {
+  app.post("/api/vendor-neon-projects", async (req, res) => {
     try {
-      const validatedData = insertVendorSupabaseKeySchema.parse(req.body);
-      const key = await storage.createVendorSupabaseKey(validatedData);
-      res.status(201).json(key);
+      const validatedData = insertVendorNeonProjectSchema.parse(req.body);
+      const project = await storage.createVendorNeonProject(validatedData);
+      res.status(201).json(project);
     } catch (error: any) {
       if (error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid supabase key data", details: error.errors });
+        return res.status(400).json({ error: "Invalid Neon project data", details: error.errors });
       }
-      res.status(500).json({ error: "Failed to create vendor supabase key" });
+      res.status(500).json({ error: "Failed to create vendor Neon project" });
     }
   });
 
-  app.patch("/api/vendor-supabase-keys/:id", async (req, res) => {
+  app.patch("/api/vendor-neon-projects/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const key = await storage.getVendorSupabaseKeyById(id);
-      if (!key) {
-        return res.status(404).json({ error: "Vendor supabase key not found" });
+      const project = await storage.getVendorNeonProjectById(id);
+      if (!project) {
+        return res.status(404).json({ error: "Vendor Neon project not found" });
       }
 
-      const updated = await storage.updateVendorSupabaseKey(
+      const updated = await storage.updateVendorNeonProject(
         id,
-        insertVendorSupabaseKeySchema.partial().parse(req.body)
+        insertVendorNeonProjectSchema.partial().parse(req.body)
       );
       res.json(updated);
     } catch (error: any) {
       if (error?.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid supabase key data", details: error.errors });
+        return res.status(400).json({ error: "Invalid Neon project data", details: error.errors });
       }
-      res.status(500).json({ error: "Failed to update vendor supabase key" });
+      res.status(500).json({ error: "Failed to update vendor Neon project" });
     }
   });
 
-  app.delete("/api/vendor-supabase-keys/:id", async (req, res) => {
+  app.delete("/api/vendor-neon-projects/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const key = await storage.getVendorSupabaseKeyById(id);
-      if (!key) {
-        return res.status(404).json({ error: "Vendor supabase key not found" });
+      const project = await storage.getVendorNeonProjectById(id);
+      if (!project) {
+        return res.status(404).json({ error: "Vendor Neon project not found" });
       }
 
-      await storage.deleteVendorSupabaseKey(id);
+      await storage.deleteVendorNeonProject(id);
       res.status(204).send();
     } catch (error) {
-      res.status(500).json({ error: "Failed to delete vendor supabase key" });
+      res.status(500).json({ error: "Failed to delete vendor Neon project" });
     }
   });
 
-  // Reports endpoint — aggregates data from the vendor's own Supabase database.
+  // Reports endpoint — aggregates data from the vendor's own Neon database.
   app.get("/api/reports/vendor/:vendorId", async (req, res) => {
     try {
       const vendorId = parseInt(req.params.vendorId);
@@ -374,7 +374,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!report) {
         return res
           .status(404)
-          .json({ error: "No Supabase keys configured for this vendor" });
+          .json({ error: "No Neon project configured for this vendor" });
       }
       res.json(report);
     } catch (error) {
