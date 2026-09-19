@@ -45,39 +45,39 @@ import {
   Trash2,
   ShieldCheck,
 } from "lucide-react";
-import type { Vendor, VendorSupabaseKey } from "@shared/schema";
+import type { Vendor, VendorNeonProject } from "@shared/schema";
 
 type AdminConfig = {
-  supabaseUrl: string | null;
-  anonKey: string | null;
+  authUrl: string | null;
+  apiKey: string | null;
   databaseUrl: string | null;
-  serviceRoleKey: string | null;
+  authSecret: string | null;
   port: number;
 };
 
 type FormState = {
   vendorId: string;
-  supabaseUrl: string;
-  anonKey: string;
+  authUrl: string;
+  apiKey: string;
   databaseUrl: string;
-  serviceRoleKey: string;
+  authSecret: string;
 };
 
 const EMPTY_FORM: FormState = {
   vendorId: "",
-  supabaseUrl: "",
-  anonKey: "",
+  authUrl: "",
+  apiKey: "",
   databaseUrl: "",
-  serviceRoleKey: "",
+  authSecret: "",
 };
 
 const DEFAULT_PORT = "5000";
 
-export default function SupabaseKeys() {
+export default function NeonProjects() {
   const [search, setSearch] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editing, setEditing] = useState<VendorSupabaseKey | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<VendorSupabaseKey | null>(
+  const [editing, setEditing] = useState<VendorNeonProject | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<VendorNeonProject | null>(
     null
   );
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -87,12 +87,12 @@ export default function SupabaseKeys() {
     queryKey: ["/api/vendors"],
   });
 
-  const { data: keys, isLoading } = useQuery<VendorSupabaseKey[]>({
-    queryKey: ["/api/vendor-supabase-keys"],
+  const { data: projects, isLoading } = useQuery<VendorNeonProject[]>({
+    queryKey: ["/api/vendor-neon-projects"],
   });
 
   const { data: adminConfig } = useQuery<AdminConfig>({
-    queryKey: ["/api/admin-supabase-config"],
+    queryKey: ["/api/admin-neon-config"],
   });
 
   const vendorName = useMemo(() => {
@@ -103,70 +103,72 @@ export default function SupabaseKeys() {
     return map;
   }, [vendors]);
 
-  const filteredKeys = useMemo(() => {
-    if (!keys) return undefined;
+  const filteredProjects = useMemo(() => {
+    if (!projects) return undefined;
     const q = search.trim().toLowerCase();
-    if (!q) return keys;
-    return keys.filter((k) =>
-      (vendorName.get(k.vendorId) ?? "").toLowerCase().includes(q)
+    if (!q) return projects;
+    return projects.filter((p) =>
+      (vendorName.get(p.vendorId) ?? "").toLowerCase().includes(q)
     );
-  }, [keys, search, vendorName]);
+  }, [projects, search, vendorName]);
 
   const selectableVendors = useMemo(() => {
     const used = new Set(
-      (keys ?? []).filter((k) => k.id !== editing?.id).map((k) => k.vendorId)
+      (projects ?? [])
+        .filter((p) => p.id !== editing?.id)
+        .map((p) => p.vendorId)
     );
     return (vendors ?? []).filter((v) => !used.has(v.id));
-  }, [vendors, keys, editing]);
+  }, [vendors, projects, editing]);
 
   const createMutation = useMutation({
     mutationFn: (data: {
       vendorId: number;
-      supabaseUrl: string;
-      anonKey: string;
+      authUrl: string;
+      apiKey: string;
       databaseUrl: string;
-      serviceRoleKey: string;
+      authSecret: string;
       port: number;
-    }) => apiRequest("POST", "/api/vendor-supabase-keys", data),
+    }) => apiRequest("POST", "/api/vendor-neon-projects", data),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["/api/vendor-supabase-keys"],
+        queryKey: ["/api/vendor-neon-projects"],
       });
-      toast({ title: "Supabase keys added successfully" });
+      toast({ title: "Neon project added successfully" });
       closeForm();
     },
     onError: () => {
-      toast({ title: "Failed to add supabase keys", variant: "destructive" });
+      toast({ title: "Failed to add Neon project", variant: "destructive" });
     },
   });
 
   const updateMutation = useMutation({
     mutationFn: (vars: { id: number; data: Record<string, unknown> }) =>
-      apiRequest("PATCH", `/api/vendor-supabase-keys/${vars.id}`, vars.data),
+      apiRequest("PATCH", `/api/vendor-neon-projects/${vars.id}`, vars.data),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["/api/vendor-supabase-keys"],
+        queryKey: ["/api/vendor-neon-projects"],
       });
-      toast({ title: "Supabase keys updated successfully" });
+      toast({ title: "Neon project updated successfully" });
       closeForm();
     },
     onError: () => {
-      toast({ title: "Failed to update supabase keys", variant: "destructive" });
+      toast({ title: "Failed to update Neon project", variant: "destructive" });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) =>
-      apiRequest("DELETE", `/api/vendor-supabase-keys/${id}`),
+      apiRequest("DELETE", `/api/vendor-neon-projects/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: ["/api/vendor-supabase-keys"],
+        queryKey: ["/api/vendor-neon-projects"],
       });
-      toast({ title: "Supabase keys deleted" });
+      toast({ title: "Neon project deleted" });
       setDeleteTarget(null);
     },
     onError: () => {
-      toast({ title: "Failed to delete supabase keys", variant: "destructive" });
+      toast({ title: "Failed to delete Neon project", variant: "destructive" });
     },
   });
 
@@ -176,14 +178,14 @@ export default function SupabaseKeys() {
     setIsFormOpen(true);
   };
 
-  const openEditForm = (key: VendorSupabaseKey) => {
-    setEditing(key);
+  const openEditForm = (project: VendorNeonProject) => {
+    setEditing(project);
     setForm({
-      vendorId: String(key.vendorId),
-      supabaseUrl: "",
-      anonKey: "",
+      vendorId: String(project.vendorId),
+      authUrl: "",
+      apiKey: "",
       databaseUrl: "",
-      serviceRoleKey: "",
+      authSecret: "",
     });
     setIsFormOpen(true);
   };
@@ -203,32 +205,29 @@ export default function SupabaseKeys() {
     }
 
     if (editing) {
-      // Only send fields that were actually changed.
       const payload: Record<string, unknown> = {
         vendorId: Number(form.vendorId),
         port: Number(DEFAULT_PORT),
       };
-      if (form.supabaseUrl.trim()) payload.supabaseUrl = form.supabaseUrl.trim();
-      if (form.anonKey.trim()) payload.anonKey = form.anonKey.trim();
-      if (form.databaseUrl.trim())
-        payload.databaseUrl = form.databaseUrl.trim();
-      if (form.serviceRoleKey.trim())
-        payload.serviceRoleKey = form.serviceRoleKey.trim();
+      if (form.authUrl.trim()) payload.authUrl = form.authUrl.trim();
+      if (form.apiKey.trim()) payload.apiKey = form.apiKey.trim();
+      if (form.databaseUrl.trim()) payload.databaseUrl = form.databaseUrl.trim();
+      if (form.authSecret.trim()) payload.authSecret = form.authSecret.trim();
 
       updateMutation.mutate({ id: editing.id, data: payload });
       return;
     }
 
     if (
-      !form.supabaseUrl.trim() ||
-      !form.anonKey.trim() ||
+      !form.authUrl.trim() ||
+      !form.apiKey.trim() ||
       !form.databaseUrl.trim() ||
-      !form.serviceRoleKey.trim()
+      !form.authSecret.trim()
     ) {
       toast({
         title: "All fields are required",
         description:
-          "Fill in the Supabase URL, anon key, database URL and service role key.",
+          "Fill in the Auth URL, API key, database URL and auth secret.",
         variant: "destructive",
       });
       return;
@@ -236,10 +235,10 @@ export default function SupabaseKeys() {
 
     createMutation.mutate({
       vendorId: Number(form.vendorId),
-      supabaseUrl: form.supabaseUrl.trim(),
-      anonKey: form.anonKey.trim(),
+      authUrl: form.authUrl.trim(),
+      apiKey: form.apiKey.trim(),
       databaseUrl: form.databaseUrl.trim(),
-      serviceRoleKey: form.serviceRoleKey.trim(),
+      authSecret: form.authSecret.trim(),
       port: Number(DEFAULT_PORT),
     });
   };
@@ -251,22 +250,22 @@ export default function SupabaseKeys() {
       {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Supabase Keys</h2>
+          <h2 className="text-xl font-bold text-gray-900">Neon Projects</h2>
           <p className="text-sm text-gray-500">
-            Manage Supabase credentials for each vendor
+            Manage Neon credentials for each vendor
           </p>
         </div>
         <Button
           onClick={openAddForm}
           className="bg-red-600 hover:bg-red-700 text-white"
-          data-testid="button-add-supabase-key"
+          data-testid="button-add-neon-project"
         >
           <Plus className="h-4 w-4 mr-2" />
-          Add Keys
+          Add Project
         </Button>
       </div>
 
-      {/* ── Admin keys (from .env) ── */}
+      {/* ── Admin config (from .env) ── */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
           <div className="flex items-center gap-2">
@@ -278,7 +277,7 @@ export default function SupabaseKeys() {
                 Admin (from .env)
               </p>
               <p className="text-xs text-gray-500">
-                Default keys used by the admin panel
+                Default credentials used by the admin panel
               </p>
             </div>
           </div>
@@ -293,16 +292,16 @@ export default function SupabaseKeys() {
                 Name
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
-                Supabase URL
+                Auth URL
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
-                Anon Key
+                API Key
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
                 Database URL
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
-                Service Role Key
+                Auth Secret
               </TableHead>
               <TableHead className="font-semibold text-gray-700">Port</TableHead>
             </TableRow>
@@ -311,16 +310,16 @@ export default function SupabaseKeys() {
             <TableRow>
               <TableCell className="font-medium text-gray-900">Admin</TableCell>
               <TableCell className="text-sm text-gray-700 max-w-[220px] truncate">
-                {adminConfig?.supabaseUrl ?? "—"}
+                {adminConfig?.authUrl ?? "—"}
               </TableCell>
               <TableCell className="font-mono text-sm text-gray-700">
-                {adminConfig?.anonKey ?? "—"}
+                {adminConfig?.apiKey ?? "—"}
               </TableCell>
               <TableCell className="font-mono text-sm text-gray-700">
                 {adminConfig?.databaseUrl ?? "—"}
               </TableCell>
               <TableCell className="font-mono text-sm text-gray-700">
-                {adminConfig?.serviceRoleKey ?? "—"}
+                {adminConfig?.authSecret ?? "—"}
               </TableCell>
               <TableCell className="font-mono text-sm text-gray-700">
                 {adminConfig?.port ?? 5000}
@@ -338,11 +337,11 @@ export default function SupabaseKeys() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-10 bg-white"
-          data-testid="input-search-supabase-keys"
+          data-testid="input-search-neon-projects"
         />
       </div>
 
-      {/* ── Keys table ── */}
+      {/* ── Projects table ── */}
       <div className="relative min-h-[300px] flex-1 overflow-auto rounded-xl border border-gray-200 bg-white [&_th]:border-r [&_th]:border-gray-200 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-gray-100 [&_td:last-child]:border-r-0 [&_tbody_tr]:border-b [&_tbody_tr]:border-gray-100">
         <Table className="min-w-[820px]">
           <TableHeader className="sticky top-0 z-10">
@@ -351,16 +350,16 @@ export default function SupabaseKeys() {
                 Vendor Name
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
-                Supabase URL
+                Auth URL
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
-                Anon Key
+                API Key
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
                 Database URL
               </TableHead>
               <TableHead className="font-semibold text-gray-700">
-                Service Role Key
+                Auth Secret
               </TableHead>
               <TableHead className="font-semibold text-gray-700">Port</TableHead>
               <TableHead className="font-semibold text-gray-700 text-right">
@@ -379,19 +378,19 @@ export default function SupabaseKeys() {
                   ))}
                 </TableRow>
               ))
-            ) : !filteredKeys || filteredKeys.length === 0 ? (
+            ) : !filteredProjects || filteredProjects.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="h-40 text-center">
                   <div className="flex flex-col items-center gap-2">
                     <KeyRound className="h-10 w-10 text-gray-300" />
                     <p className="text-sm font-medium text-gray-500">
                       {search
-                        ? "No keys match your search"
-                        : "No vendor keys yet"}
+                        ? "No projects match your search"
+                        : "No vendor projects yet"}
                     </p>
                     {!search && (
                       <p className="text-xs text-gray-400">
-                        Click "Add Keys" to store Supabase credentials for a
+                        Click "Add Project" to store Neon credentials for a
                         vendor
                       </p>
                     )}
@@ -399,28 +398,28 @@ export default function SupabaseKeys() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredKeys.map((key) => (
+              filteredProjects.map((project) => (
                 <TableRow
-                  key={key.id}
-                  data-testid={`row-supabase-key-${key.id}`}
+                  key={project.id}
+                  data-testid={`row-neon-project-${project.id}`}
                 >
                   <TableCell className="font-medium text-gray-900">
-                    {vendorName.get(key.vendorId) ?? "Unknown vendor"}
+                    {vendorName.get(project.vendorId) ?? "Unknown vendor"}
                   </TableCell>
                   <TableCell className="text-sm text-gray-700 max-w-[220px] truncate">
-                    {key.supabaseUrl}
+                    {project.authUrl}
                   </TableCell>
                   <TableCell className="font-mono text-sm text-gray-700">
-                    {key.anonKey}
+                    {project.apiKey}
                   </TableCell>
                   <TableCell className="font-mono text-sm text-gray-700">
-                    {key.databaseUrl}
+                    {project.databaseUrl}
                   </TableCell>
                   <TableCell className="font-mono text-sm text-gray-700">
-                    {key.serviceRoleKey}
+                    {project.authSecret}
                   </TableCell>
                   <TableCell className="font-mono text-sm text-gray-700">
-                    {key.port}
+                    {project.port}
                   </TableCell>
                   <TableCell className="text-right">
                     <DropdownMenu>
@@ -429,24 +428,24 @@ export default function SupabaseKeys() {
                           variant="ghost"
                           size="icon"
                           className="h-8 w-8 text-gray-500 hover:text-gray-900"
-                          data-testid={`button-supabase-key-actions-${key.id}`}
+                          data-testid={`button-neon-project-actions-${project.id}`}
                         >
                           <MoreVertical className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-44">
                         <DropdownMenuItem
-                          onClick={() => openEditForm(key)}
+                          onClick={() => openEditForm(project)}
                           className="cursor-pointer gap-2"
-                          data-testid={`menu-edit-supabase-key-${key.id}`}
+                          data-testid={`menu-edit-neon-project-${project.id}`}
                         >
                           <Pencil className="h-4 w-4 text-gray-500" />
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => setDeleteTarget(key)}
+                          onClick={() => setDeleteTarget(project)}
                           className="cursor-pointer gap-2 text-red-600 focus:text-red-600"
-                          data-testid={`menu-delete-supabase-key-${key.id}`}
+                          data-testid={`menu-delete-neon-project-${project.id}`}
                         >
                           <Trash2 className="h-4 w-4" />
                           Delete
@@ -467,12 +466,12 @@ export default function SupabaseKeys() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <KeyRound className="h-5 w-5 text-red-500" />
-              {editing ? "Edit Supabase Keys" : "Add Supabase Keys"}
+              {editing ? "Edit Neon Project" : "Add Neon Project"}
             </DialogTitle>
             <DialogDescription>
               {editing
-                ? "Leave a key field blank to keep its current value."
-                : "Store the Supabase credentials for the selected vendor."}
+                ? "Leave a field blank to keep its current value."
+                : "Store the Neon credentials for the selected vendor."}
             </DialogDescription>
           </DialogHeader>
 
@@ -485,7 +484,7 @@ export default function SupabaseKeys() {
                   setForm((f) => ({ ...f, vendorId: value }))
                 }
               >
-                <SelectTrigger data-testid="select-key-vendor">
+                <SelectTrigger data-testid="select-project-vendor">
                   <SelectValue placeholder="Select a vendor" />
                 </SelectTrigger>
                 <SelectContent>
@@ -505,28 +504,28 @@ export default function SupabaseKeys() {
             </div>
 
             <div className="space-y-2">
-              <Label>Supabase URL {editing ? "" : "*"}</Label>
+              <Label>Neon Auth URL {editing ? "" : "*"}</Label>
               <Input
                 placeholder={
-                  editing ? editing.supabaseUrl : "https://xxxx.supabase.co"
+                  editing ? editing.authUrl : "https://ep-xxxx.neonauth.us-east-1.aws.neon.tech"
                 }
-                value={form.supabaseUrl}
+                value={form.authUrl}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, supabaseUrl: e.target.value }))
+                  setForm((f) => ({ ...f, authUrl: e.target.value }))
                 }
-                data-testid="input-supabase-url"
+                data-testid="input-auth-url"
               />
             </div>
 
             <div className="space-y-2">
-              <Label>Anon Key {editing ? "" : "*"}</Label>
+              <Label>API Key {editing ? "" : "*"}</Label>
               <Input
-                placeholder={editing ? editing.anonKey : "sb_publishable_..."}
-                value={form.anonKey}
+                placeholder={editing ? editing.apiKey : "napi_..."}
+                value={form.apiKey}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, anonKey: e.target.value }))
+                  setForm((f) => ({ ...f, apiKey: e.target.value }))
                 }
-                data-testid="input-anon-key"
+                data-testid="input-api-key"
               />
             </div>
 
@@ -545,16 +544,16 @@ export default function SupabaseKeys() {
             </div>
 
             <div className="space-y-2">
-              <Label>Service Role Key {editing ? "" : "*"}</Label>
+              <Label>Auth Secret {editing ? "" : "*"}</Label>
               <Input
                 placeholder={
-                  editing ? editing.serviceRoleKey : "sb_secret_..."
+                  editing ? editing.authSecret : "your-auth-secret..."
                 }
-                value={form.serviceRoleKey}
+                value={form.authSecret}
                 onChange={(e) =>
-                  setForm((f) => ({ ...f, serviceRoleKey: e.target.value }))
+                  setForm((f) => ({ ...f, authSecret: e.target.value }))
                 }
-                data-testid="input-service-role-key"
+                data-testid="input-auth-secret"
               />
             </div>
 
@@ -579,9 +578,9 @@ export default function SupabaseKeys() {
                 type="submit"
                 disabled={saving}
                 className="bg-red-600 hover:bg-red-700 text-white"
-                data-testid="button-save-supabase-key"
+                data-testid="button-save-neon-project"
               >
-                {saving ? "Saving..." : editing ? "Save Changes" : "Add Keys"}
+                {saving ? "Saving..." : editing ? "Save Changes" : "Add Project"}
               </Button>
             </DialogFooter>
           </form>
@@ -595,10 +594,10 @@ export default function SupabaseKeys() {
       >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
-            <DialogTitle>Delete supabase keys?</DialogTitle>
+            <DialogTitle>Delete Neon project?</DialogTitle>
             <DialogDescription>
               {deleteTarget
-                ? `This will remove the stored keys for ${
+                ? `This will remove the stored credentials for ${
                     vendorName.get(deleteTarget.vendorId) ?? "this vendor"
                   }. This action cannot be undone.`
                 : ""}
@@ -618,7 +617,7 @@ export default function SupabaseKeys() {
                 deleteTarget && deleteMutation.mutate(deleteTarget.id)
               }
               disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete-supabase-key"
+              data-testid="button-confirm-delete-neon-project"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
             </Button>

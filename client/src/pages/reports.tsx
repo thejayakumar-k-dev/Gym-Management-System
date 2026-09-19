@@ -160,7 +160,7 @@ export default function Reports() {
           </h3>
           <p className="text-sm text-gray-500 max-w-sm">
             Choose a vendor from the dropdown above. Reports are loaded using
-            the Supabase keys stored for that vendor.
+            the Neon project configured for that vendor.
           </p>
         </div>
       ) : loading ? (
@@ -189,11 +189,11 @@ export default function Reports() {
             <KeyRound className="h-7 w-7 text-amber-500" />
           </div>
           <h3 className="text-lg font-bold text-gray-900">
-            No Supabase keys configured
+            No Neon project configured
           </h3>
           <p className="text-sm text-gray-500 max-w-sm">
-            This vendor doesn&apos;t have Supabase credentials yet. Add them in
-            the <span className="font-semibold">Supabase Keys</span> tab to load
+            This vendor doesn&apos;t have Neon credentials yet. Add them in
+            the <span className="font-semibold">Neon Projects</span> tab to load
             their reports.
           </p>
         </div>
@@ -207,7 +207,7 @@ export default function Reports() {
           </h3>
           <p className="text-sm text-gray-500 max-w-sm">
             Failed to connect to this vendor&apos;s database. Verify the keys in
-            the <span className="font-semibold">Supabase Keys</span> tab.
+            the <span className="font-semibold">Neon Projects</span> tab.
           </p>
         </div>
       ) : report ? (

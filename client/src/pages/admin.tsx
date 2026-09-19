@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { getSession, signOut } from "@/lib/auth";
 import { isAdminUser } from "@/lib/admin";
 import {
   LayoutDashboard,
@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import Vendors from "@/pages/vendors";
 import VendorAccounts from "@/pages/vendor-accounts";
-import SupabaseKeys from "@/pages/supabase-keys";
+import NeonProjects from "@/pages/neon-projects";
 import Reports from "@/pages/reports";
 
 const sidebarItems = [
@@ -25,7 +25,7 @@ const sidebarItems = [
   { title: "Vendors", icon: Store, url: "/admin/vendors" },
   { title: "Vendor Accounts", icon: Wallet, url: "/admin/vendor-accounts" },
   { title: "Reports", icon: FileText, url: "/admin/reports" },
-  { title: "Supabase Keys", icon: KeyRound, url: "/admin/supabase-keys" },
+  { title: "Neon Projects", icon: KeyRound, url: "/admin/neon-projects" },
 ];
 
 const pageTitles: Record<string, string> = {
@@ -33,7 +33,7 @@ const pageTitles: Record<string, string> = {
   "/admin/vendors": "Vendors",
   "/admin/vendor-accounts": "Vendor Accounts",
   "/admin/reports": "Reports",
-  "/admin/supabase-keys": "Supabase Keys",
+  "/admin/neon-projects": "Neon Projects",
 };
 
 type SidebarNavProps = {
@@ -86,20 +86,23 @@ export default function AdminPanel() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [location, setLocation] = useLocation();
   const [userId, setUserId] = useState<string | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    supabase.auth
-      .getUser()
+    getSession()
       .then(({ data }) => {
-        setUserId(data.user?.id ?? null);
+        const user = data?.session?.user;
+        setUserId(user?.id ?? null);
+        setUserEmail(user?.email ?? null);
         setChecking(false);
       })
       .catch(() => setChecking(false));
   }, []);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await signOut();
+    window.location.href = "/";
   };
 
   const navigate = (url: string) => {
@@ -116,7 +119,7 @@ export default function AdminPanel() {
   }
 
   // Only the admin UID may view this panel.
-  if (!isAdminUser({ id: userId })) {
+  if (!isAdminUser({ id: userId, email: userEmail })) {
     return (
       <div className="flex min-h-dvh flex-col items-center justify-center bg-gray-50 gap-4 px-6 text-center">
         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
@@ -223,8 +226,8 @@ export default function AdminPanel() {
               <Vendors />
             ) : location === "/admin/vendor-accounts" ? (
               <VendorAccounts />
-            ) : location === "/admin/supabase-keys" ? (
-              <SupabaseKeys />
+            ) : location === "/admin/neon-projects" ? (
+              <NeonProjects />
             ) : location === "/admin/reports" ? (
               <Reports />
             ) : (
