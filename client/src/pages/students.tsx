@@ -28,13 +28,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Student } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertStudentSchema } from "@shared/schema";
+import { insertStudentSchema, NAME_REGEX, PHONE_REGEX } from "@shared/schema";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
 const formSchema = insertStudentSchema.omit({ expiryDate: true, registerNo: true }).extend({
-  name: z.string().min(1, "Name is required"),
-  phone: z.string().min(10, "Valid phone number is required"),
+  name: z.string().min(1, "Name is required").regex(NAME_REGEX, "Name cannot contain special characters"),
+  phone: z.string().regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -228,12 +228,12 @@ export default function Students() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Students</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage gym members</p>
         </div>
-        <Button onClick={() => handleOpenDialog()} data-testid="button-add-student">
+        <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto" data-testid="button-add-student">
           <Plus className="mr-2 h-4 w-4" />
           Add Student
         </Button>
@@ -253,7 +253,7 @@ export default function Students() {
             </div>
           ) : students && students.length > 0 ? (
             <div className="rounded-md border">
-              <Table>
+              <Table className="min-w-[900px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Register No.</TableHead>
@@ -372,7 +372,18 @@ export default function Students() {
                   <FormItem>
                     <FormLabel>Phone <span className="text-red-500">*</span></FormLabel>
                     <FormControl>
-                      <Input {...field} data-testid="input-phone" />
+                      <Input
+                        type="tel"
+                        placeholder="e.g. 9876543210"
+                        {...field}
+                        maxLength={10}
+                        onChange={(e) =>
+                          field.onChange(
+                            e.target.value.replace(/\D/g, "").slice(0, 10)
+                          )
+                        }
+                        data-testid="input-phone"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

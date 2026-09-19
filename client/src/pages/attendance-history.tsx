@@ -91,7 +91,7 @@ export default function AttendanceHistory() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Attendance History</h1>
           <p className="text-sm text-muted-foreground mt-1">View and export attendance records</p>
@@ -99,6 +99,7 @@ export default function AttendanceHistory() {
         <Button
           onClick={handleExportCSV}
           variant="outline"
+          className="w-full sm:w-auto"
           disabled={!filteredRecords || filteredRecords.length === 0}
           data-testid="button-export-csv"
         >
@@ -156,7 +157,7 @@ export default function AttendanceHistory() {
             </div>
           ) : filteredRecords && filteredRecords.length > 0 ? (
             <div className="rounded-md border">
-              <Table>
+              <Table className="min-w-[560px]">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>

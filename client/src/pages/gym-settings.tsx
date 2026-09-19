@@ -250,7 +250,7 @@ export default function GymSettings() {
 
       {/* Right Side - Preview */}
       <div className="space-y-6">
-        <Card className="sticky top-6">
+        <Card className="lg:sticky lg:top-6">
           <CardHeader>
             <CardTitle>Preview</CardTitle>
           </CardHeader>

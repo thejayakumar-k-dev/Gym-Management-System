@@ -2,6 +2,7 @@ import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import {
   Eye,
   EyeOff,
@@ -12,10 +13,21 @@ import {
   CreditCard,
   Phone,
   Lock,
+  Ban,
+  Wallet,
+  LogOut,
 } from "lucide-react";
 
 interface LoginPageProps {
   onLogin: () => void;
+}
+
+interface BlockedInfo {
+  vendorName: string;
+  businessName: string | null;
+  phone: string;
+  usedCredits: number;
+  totalCredits: number;
 }
 
 const features = [
@@ -31,11 +43,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [blockedInfo, setBlockedInfo] = useState<BlockedInfo | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+
+    if (!/^\d{10}$/.test(phone)) {
+      setError("Phone number must be exactly 10 digits");
+      setLoading(false);
+      return;
+    }
 
     const fakeEmail = `${phone}@gmail.com`;
 
@@ -44,9 +63,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       password,
     });
 
-    setLoading(false);
-
     if (signInError) {
+      setLoading(false);
       if (signInError.message.includes("Invalid login")) {
         setError("Invalid phone number or password");
       } else {
@@ -55,11 +73,103 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       return;
     }
 
+    // Sign-in succeeded — check if this vendor's account is blocked.
+    // The admin (UID check client-side) is never blocked.
+    try {
+      const res = await fetch(`/api/vendor-accounts/status/${phone}`, {
+        credentials: "include",
+      });
+      if (res.ok) {
+        const status = await res.json();
+        if (status?.blocked) {
+          // Blocked vendor: sign out immediately and show pay & unlock screen
+          await supabase.auth.signOut();
+          setBlockedInfo({
+            vendorName: status.vendorName,
+            businessName: status.businessName,
+            phone: status.phone,
+            usedCredits: status.usedCredits,
+            totalCredits: status.totalCredits,
+          });
+          setLoading(false);
+          return;
+        }
+      }
+      // 404 (admin/no account) or not blocked → let them in
+    } catch {
+      // status check failed → don't block login on infrastructure error
+    }
+
+    setLoading(false);
     onLogin();
   };
 
+  // ══════════════════════════════════════════════════════════════
+  // BLOCKED SCREEN — vendor consumed all paid + credit days
+  // ══════════════════════════════════════════════════════════════
+  if (blockedInfo) {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-md rounded-2xl border border-red-200 bg-white p-8 shadow-lg text-center">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+            <Ban className="h-8 w-8 text-red-600" />
+          </div>
+          <h1 className="text-2xl font-bold text-gray-900">Account Blocked</h1>
+          <p className="mt-2 text-sm text-gray-500">
+            {blockedInfo.businessName
+              ? `${blockedInfo.businessName} — ${blockedInfo.vendorName}`
+              : blockedInfo.vendorName}
+          </p>
+
+          <div className="mt-6 rounded-xl bg-red-50 border border-red-100 p-4">
+            <p className="text-sm font-semibold text-red-700">
+              You have used all your credit days
+            </p>
+            <div className="mt-3 flex items-center justify-center gap-2">
+              <Badge className="bg-red-600 text-white hover:bg-red-600 border border-red-700">
+                0/{blockedInfo.totalCredits} days
+              </Badge>
+              <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border border-red-200">
+                {blockedInfo.usedCredits} days outstanding
+              </Badge>
+            </div>
+            <p className="mt-3 text-sm text-red-600">
+              Please pay your outstanding days to unlock your account.
+            </p>
+          </div>
+
+          <div className="mt-6 flex flex-col gap-2">
+            <Button
+              className="h-11 bg-red-600 hover:bg-red-700 text-white"
+              onClick={() => {
+                setBlockedInfo(null);
+                setPassword("");
+              }}
+              data-testid="button-back-to-login"
+            >
+              <Wallet className="h-4 w-4 mr-2" />
+              Pay &amp; Unlock — Contact Admin
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => setBlockedInfo(null)}
+              data-testid="button-try-again"
+            >
+              Back to Login
+            </Button>
+          </div>
+
+          <p className="mt-4 text-xs text-gray-400">
+            Once the admin updates your account, you can sign in again with the same
+            phone number and password.
+            </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div className="flex min-h-dvh w-full">
       {/* ═══════════════════════════════════════════════
           LEFT PANEL — 50% Gym Image + Content
          ═══════════════════════════════════════════════ */}
@@ -153,14 +263,14 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       {/* ═══════════════════════════════════════════════
           RIGHT PANEL — 50% White + Centered Login
          ═══════════════════════════════════════════════ */}
-      <div className="relative flex w-full lg:w-[40%] flex-col bg-white overflow-hidden">
+      <div className="relative flex w-full lg:w-[40%] flex-col bg-white overflow-y-auto">
         {/* Subtle decorative elements */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-red-50 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3 pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-red-50 rounded-full blur-3xl opacity-40 translate-y-1/3 -translate-x-1/4 pointer-events-none" />
         <div className="absolute top-1/2 right-10 w-40 h-40 bg-red-50/50 rounded-full blur-2xl opacity-30 pointer-events-none" />
 
         {/* Top-right tagline */}
-        <div className="absolute top-7 right-8 text-right">
+        <div className="absolute top-7 right-8 text-right hidden sm:block">
           <p className="text-[10px] tracking-[0.3em] text-gray-900 uppercase font-semibold">
             Fit Today
           </p>
@@ -171,8 +281,8 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         </div>
 
         {/* Centered login card */}
-        <div className="flex-1 flex items-center justify-center px-6">
-          <div className="w-full max-w-[440px] rounded-2xl border border-gray-200 px-10 py-12 shadow-sm">
+        <div className="flex-1 flex items-center justify-center px-4 sm:px-6 py-8">
+          <div className="w-full max-w-[440px] rounded-2xl border border-gray-200 px-6 sm:px-10 py-8 sm:py-12 shadow-sm">
             {/* Dumbbell icon */}
             <div className="mb-5 flex justify-center">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
@@ -207,8 +317,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                     type="tel"
                     placeholder="Enter your phone number"
                     value={phone}
+                    maxLength={10}
                     onChange={(e) => {
-                      setPhone(e.target.value);
+                      setPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
                       setError("");
                     }}
                     className="h-11 w-full rounded-lg border border-gray-200 bg-gray-50/60 pl-10 pr-4 text-sm outline-none transition-all placeholder:text-gray-400 focus:border-red-400 focus:bg-white focus:ring-2 focus:ring-red-500/10"

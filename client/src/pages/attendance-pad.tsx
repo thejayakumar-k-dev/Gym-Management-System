@@ -189,7 +189,7 @@ export default function AttendancePad() {
   // Show error page if general error
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <div className="min-h-dvh bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-6">
           <div className="text-center relative">
             <h1 className="text-4xl font-bold text-white mb-2">Attendance</h1>
@@ -197,7 +197,7 @@ export default function AttendancePad() {
           </div>
 
           <Card className="bg-slate-800 border-slate-700">
-            <CardContent className="p-8">
+            <CardContent className="p-6 sm:p-8">
               <div className="bg-red-900/20 border-2 border-red-500 rounded-lg p-4 flex items-center gap-2">
                 <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0" />
                 <p className="font-bold text-red-400">{error.error}</p>
@@ -223,7 +223,7 @@ export default function AttendancePad() {
   return (
     <div
       className={cn(
-        "min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4",
+        "min-h-dvh bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4",
         isFullscreen && "fixed inset-0 z-50"
       )}
     >
@@ -249,7 +249,7 @@ export default function AttendancePad() {
 
         {/* Display */}
         <Card className="bg-slate-800 border-slate-700">
-          <CardContent className="p-8">
+          <CardContent className="p-6 sm:p-8">
             <div className="bg-slate-900 rounded-lg p-6 min-h-[80px] flex items-center justify-center">
               <p
                 className="text-4xl font-mono text-white tracking-wider"

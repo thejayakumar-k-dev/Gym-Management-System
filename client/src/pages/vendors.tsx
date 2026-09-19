@@ -4,7 +4,6 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -26,8 +25,6 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Search,
   Plus,
-  Pencil,
-  Eye,
   Store,
   MapPin,
   Phone,
@@ -38,7 +35,19 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  MoreVertical,
+  Eye,
+  Pencil,
+  ExternalLink,
+  Ban,
+  Briefcase,
 } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -50,29 +59,71 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import type { Vendor } from "@shared/schema";
+import {
+  NAME_REGEX,
+  PHONE_REGEX,
+  ZIP_CODE_REGEX,
+  ADDRESS_REGEX,
+  ADMIN_CONTACT_NUMBER,
+  type Vendor,
+} from "@shared/schema";
 
 // ── Multi-step form schema ──────────────────────────────────────────────
-const formSchema = z.object({
+const baseFormSchema = z.object({
   // Step 1 — Personal Information
-  firstName: z.string().min(1, "First name is required"),
-  lastName: z.string().min(1, "Last name is required"),
-  phone: z.string().min(10, "Valid phone number is required"),
+  firstName: z
+    .string()
+    .min(1, "First name is required")
+    .regex(NAME_REGEX, "First name cannot contain special characters"),
+  lastName: z
+    .string()
+    .min(1, "Last name is required")
+    .regex(NAME_REGEX, "Last name cannot contain special characters"),
+  phone: z.string().regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),
+  password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
   email: z
     .string()
     .email("Invalid email address")
     .optional()
     .or(z.literal("")),
-  // Step 2 — Address Details
-  addressLine1: z.string().min(1, "Address line 1 is required"),
-  addressLine2: z.string().optional().or(z.literal("")),
-  city: z.string().min(1, "City is required"),
-  state: z.string().min(1, "State is required"),
-  zipcode: z
+  // Step 2 — Business Information
+  businessName: z.string().min(1, "Business name is required").regex(NAME_REGEX, "Business name cannot contain special characters"),
+  gstNumber: z.string().optional().or(z.literal("")),
+  panNumber: z.string().optional().or(z.literal("")),
+  // Step 3 — Address Details
+  addressLine1: z
     .string()
-    .min(1, "Zipcode is required")
-    .regex(/^\d{5,6}$/, "Enter a valid zipcode (5-6 digits)"),
-  areaName: z.string().min(1, "Area name is required"),
+    .min(1, "Address line 1 is required")
+    .regex(ADDRESS_REGEX, "Address cannot contain special characters"),
+  addressLine2: z
+    .string()
+    .regex(ADDRESS_REGEX, "Address cannot contain special characters")
+    .optional()
+    .or(z.literal("")),
+  city: z
+    .string()
+    .min(1, "City is required")
+    .regex(NAME_REGEX, "City cannot contain special characters"),
+  state: z
+    .string()
+    .min(1, "State is required")
+    .regex(NAME_REGEX, "State cannot contain special characters"),
+  zipcode: z.string().regex(ZIP_CODE_REGEX, "Enter a valid zipcode (5-6 digits)"),
+  areaName: z
+    .string()
+    .min(1, "Area name is required")
+    .regex(NAME_REGEX, "Area name cannot contain special characters"),
+});
+
+// The platform admin's own contact number can't be used for a vendor.
+const formSchema = baseFormSchema.superRefine((data, ctx) => {
+  if (data.phone.replace(/\D/g, "") === ADMIN_CONTACT_NUMBER) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["phone"],
+      message: "You are the admin — this contact number cannot be used for a vendor",
+    });
+  }
 });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -83,10 +134,17 @@ const STEPS = [
     title: "Personal Information",
     description: "Basic contact details of the vendor",
     icon: User,
-    fields: ["firstName", "lastName", "phone", "email"],
+    fields: ["firstName", "lastName", "phone", "password", "email"],
   },
   {
     id: 2,
+    title: "Business Information",
+    description: "Business and tax details (optional)",
+    icon: Briefcase,
+    fields: ["businessName", "gstNumber", "panNumber"],
+  },
+  {
+    id: 3,
     title: "Address Details",
     description: "Where the vendor is located",
     icon: Home,
@@ -105,7 +163,11 @@ const EMPTY_FORM: FormValues = {
   firstName: "",
   lastName: "",
   phone: "",
+  password: "",
   email: "",
+  businessName: "",
+  gstNumber: "",
+  panNumber: "",
   addressLine1: "",
   addressLine2: "",
   city: "",
@@ -146,6 +208,18 @@ export default function Vendors() {
     mode: "onTouched",
   });
 
+  const extractServerError = (err: unknown): string => {
+    const msg = err instanceof Error ? err.message : "";
+    // apiRequest throws "<status>: <body text>"
+    const body = msg.includes(": ") ? msg.slice(msg.indexOf(": ") + 2) : msg;
+    try {
+      const parsed = JSON.parse(body);
+      return parsed?.error ?? body;
+    } catch {
+      return body || "Something went wrong";
+    }
+  };
+
   const createMutation = useMutation({
     mutationFn: (data: FormValues) => apiRequest("POST", "/api/vendors", data),
     onSuccess: () => {
@@ -153,8 +227,8 @@ export default function Vendors() {
       toast({ title: "Vendor added successfully" });
       closeForm();
     },
-    onError: () => {
-      toast({ title: "Failed to add vendor", variant: "destructive" });
+    onError: (err) => {
+      toast({ title: extractServerError(err), variant: "destructive" });
     },
   });
 
@@ -166,8 +240,8 @@ export default function Vendors() {
       toast({ title: "Vendor updated successfully" });
       closeForm();
     },
-    onError: () => {
-      toast({ title: "Failed to update vendor", variant: "destructive" });
+    onError: (err) => {
+      toast({ title: extractServerError(err), variant: "destructive" });
     },
   });
 
@@ -200,7 +274,11 @@ export default function Vendors() {
       firstName: vendor.firstName,
       lastName: vendor.lastName,
       phone: vendor.phone,
+      password: "",
       email: vendor.email ?? "",
+      businessName: vendor.businessName ?? "",
+      gstNumber: vendor.gstNumber ?? "",
+      panNumber: vendor.panNumber ?? "",
       addressLine1: vendor.addressLine1 ?? "",
       addressLine2: vendor.addressLine2 ?? "",
       city: vendor.city ?? "",
@@ -229,13 +307,18 @@ export default function Vendors() {
 
   const onSubmit = (data: FormValues) => {
     if (editingVendor) {
-      updateMutation.mutate({ id: editingVendor.id, ...data });
+      const { password, ...rest } = data;
+      updateMutation.mutate({ id: editingVendor.id, ...rest, ...(password ? { password } : {}) } as FormValues & { id: number });
     } else {
       createMutation.mutate(data);
     }
   };
 
   const handleFinalSubmit = async () => {
+    // Require password only when creating a new vendor
+    if (!editingVendor) {
+      await form.trigger("password");
+    }
     const valid = await form.trigger(); // validate everything
     if (!valid) {
       // Jump back to the first step that has an error
@@ -244,6 +327,10 @@ export default function Vendors() {
         (s.fields as readonly string[]).some((f) => f in errors)
       );
       if (firstBadStep >= 0) setStep(firstBadStep + 1);
+      // Surface the admin-phone rejection prominently
+      if (errors.phone?.message) {
+        toast({ title: errors.phone.message as string, variant: "destructive" });
+      }
       return;
     }
     onSubmit(form.getValues());
@@ -259,7 +346,7 @@ export default function Vendors() {
     return (
       <Form {...form}>
         <form
-          onSubmit={form.handleSubmit(onSubmit)}
+          onSubmit={(e) => e.preventDefault()}
           className="flex flex-col"
         >
           {/* ── Form header ── */}
@@ -290,7 +377,7 @@ export default function Vendors() {
               </Button>
             </div>
             {/* Step indicator cards — inside the header box */}
-            <div className="px-5 pb-4 flex items-center gap-3">
+            <div className="px-3 sm:px-5 pb-4 flex items-center gap-2 sm:gap-3 overflow-x-auto">
               {STEPS.map((s, i) => {
                 const Icon = s.icon;
                 const isActive = step === s.id;
@@ -298,7 +385,7 @@ export default function Vendors() {
                 return (
                   <div
                     key={s.id}
-                    className={`flex-1 flex items-center gap-3 rounded-xl border px-4 py-3 transition-colors ${
+                    className={`flex-1 min-w-[150px] flex items-center gap-3 rounded-xl border px-3 sm:px-4 py-3 transition-colors ${
                       isActive
                         ? "border-red-200 bg-red-50"
                         : isDone
@@ -413,9 +500,24 @@ export default function Vendors() {
                               type="tel"
                               placeholder="e.g. 9876543210"
                               {...field}
+                              maxLength={10}
+                              onChange={(e) =>
+                                field.onChange(
+                                  e.target.value.replace(/\D/g, "").slice(0, 10)
+                                )
+                              }
                               className="h-11" data-testid="input-phone"
                             />
                           </FormControl>
+                          {/* Real-time warning while typing the admin's number */}
+                          {field.value === ADMIN_CONTACT_NUMBER && (
+                            <p
+                              className="text-sm font-medium text-red-600"
+                              data-testid="text-admin-phone-warning"
+                            >
+                              You are the admin — this contact number cannot be used for a vendor
+                            </p>
+                          )}
                           <FormMessage />
                         </FormItem>
                       )}
@@ -439,11 +541,105 @@ export default function Vendors() {
                       )}
                     />
                   </div>
+
+                  <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {editingVendor ? "Change Password" : "Login Password"} *
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="password"
+                            placeholder={editingVendor ? "Leave blank to keep current password" : "Min. 6 characters"}
+                            {...field}
+                            className="h-11" data-testid="input-password"
+                          />
+                        </FormControl>
+                        <p className="text-xs text-gray-400">
+                          {editingVendor
+                            ? "Enter new password or leave blank to keep current"
+                            : `Vendor uses ${"{phone}"}@gmail.com with this password to login`}
+                        </p>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </div>
               )}
 
-              {/* ════ STEP 2 — Address Details ════ */}
+              {/* ════ STEP 2 — Business Information ════ */}
               {step === 2 && (
+                <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">
+                      Business Information
+                    </h3>
+                    <p className="text-sm text-gray-500">
+                      Business name is required, tax details are optional
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="businessName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Business Name *</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="e.g. Kumar Traders"
+                              {...field}
+                              className="h-11" data-testid="input-business-name"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="gstNumber"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>GST Number (optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="e.g. 22AAAAA0000A1Z5"
+                              {...field}
+                              className="h-11" data-testid="input-gst-number"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="panNumber"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>PAN Number (optional)</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="e.g. ABCDE1234F"
+                              {...field}
+                              className="h-11" data-testid="input-pan-number"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* ════ STEP 3 — Address Details ════ */}
+              {step === 3 && (
                 <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
                   <div>
                     <h3 className="text-base font-bold text-gray-900">
@@ -568,14 +764,15 @@ export default function Vendors() {
 
           {/* ── Footer with actions (flows right after content) ── */}
           <div className="mt-4 rounded-xl border border-gray-200 bg-white px-5 py-3">
-            <div className="flex items-center justify-between">
-              <div>
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div className="w-full sm:w-auto">
                 {step > 1 ? (
                   <Button
                     type="button"
                     variant="outline"
                     onClick={handleBack}
                     disabled={saving}
+                    className="w-full sm:w-auto"
                   >
                     <ChevronLeft className="h-4 w-4 mr-1" />
                     Back
@@ -586,12 +783,13 @@ export default function Vendors() {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 w-full sm:w-auto">
                 <Button
                   type="button"
                   variant="ghost"
                   onClick={closeForm}
                   disabled={saving}
+                  className="flex-1 sm:flex-none"
                 >
                   Cancel
                 </Button>
@@ -599,7 +797,7 @@ export default function Vendors() {
                   <Button
                     type="button"
                     onClick={handleNext}
-                    className="bg-red-600 hover:bg-red-700 text-white"
+                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white"
                   >
                     Next
                     <ChevronRight className="h-4 w-4 ml-1" />
@@ -609,7 +807,7 @@ export default function Vendors() {
                     type="button"
                     onClick={handleFinalSubmit}
                     disabled={saving}
-                    className="bg-red-600 hover:bg-red-700 text-white"
+                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white"
                     data-testid="button-save-vendor"
                   >
                     {saving
@@ -664,7 +862,7 @@ export default function Vendors() {
 
       {/* ── Vendors table (fills remaining height, scrolls internally) ── */}
       <div className="relative min-h-[300px] flex-1 overflow-auto rounded-xl border border-gray-200 bg-white [&_th]:border-r [&_th]:border-gray-200 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-gray-100 [&_td:last-child]:border-r-0 [&_tbody_tr]:border-b [&_tbody_tr]:border-gray-100">
-        <Table>
+        <Table className="min-w-[720px]">
           <TableHeader className="sticky top-0 z-10">
             <TableRow className="bg-gray-50 hover:bg-gray-50 border-b border-gray-200">
               <TableHead className="font-semibold text-gray-700">
@@ -714,13 +912,38 @@ export default function Vendors() {
             ) : (
               filteredVendors.map((vendor) => (
                 <TableRow key={vendor.id} data-testid={`row-vendor-${vendor.id}`}>
-                  <TableCell className="font-medium text-gray-900">
-                    {vendor.firstName} {vendor.lastName}
+                  <TableCell>
+                    {vendor.businessName && (
+                      <div className="text-sm font-semibold text-gray-900">
+                        {vendor.businessName}
+                      </div>
+                    )}
+                    <div className={`text-sm ${vendor.businessName ? 'text-gray-500' : 'font-medium text-gray-900'}`}>
+                      {vendor.firstName} {vendor.lastName}
+                    </div>
                   </TableCell>
-                  <TableCell className="text-gray-600">{vendor.phone}</TableCell>
-                  <TableCell className="text-gray-600">
-                    {[vendor.areaName, vendor.city].filter(Boolean).join(", ") ||
-                      "—"}
+                  <TableCell>
+                    <div className="text-sm font-medium text-gray-900">
+                      {vendor.phone}
+                    </div>
+                    {vendor.email && (
+                      <div className="text-xs text-gray-500">{vendor.email}</div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm text-gray-900 space-y-0.5">
+                      {vendor.addressLine1 && (
+                        <div>{vendor.addressLine1}{vendor.addressLine2 ? `, ${vendor.addressLine2}` : ""}</div>
+                      )}
+                      {vendor.areaName && (
+                        <div>{vendor.areaName}</div>
+                      )}
+                      {[vendor.city, vendor.state, vendor.zipcode].filter(Boolean).join(", ") && (
+                        <div className="text-xs text-gray-500">
+                          {[vendor.city, vendor.state, vendor.zipcode].filter(Boolean).join(", ")}
+                        </div>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge
@@ -735,36 +958,52 @@ export default function Vendors() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-gray-500 hover:text-gray-900"
-                        onClick={() => setViewingVendor(vendor)}
-                        title="View details"
-                        data-testid={`button-view-${vendor.id}`}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-gray-500 hover:text-red-600"
-                        onClick={() => openEditForm(vendor)}
-                        title="Edit vendor"
-                        data-testid={`button-edit-${vendor.id}`}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <div className="flex items-center gap-1.5 pl-1">
-                        <Switch
-                          checked={vendor.status === "active"}
-                          onCheckedChange={() => handleToggleStatus(vendor)}
-                          disabled={toggleStatusMutation.isPending}
-                          data-testid={`switch-status-${vendor.id}`}
-                        />
-                      </div>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-gray-500 hover:text-gray-900"
+                          data-testid={`button-actions-${vendor.id}`}
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuItem
+                          onClick={() => setViewingVendor(vendor)}
+                          className="cursor-pointer gap-2"
+                          data-testid={`menu-view-${vendor.id}`}
+                        >
+                          <Eye className="h-4 w-4 text-gray-500" />
+                          View Details
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => openEditForm(vendor)}
+                          className="cursor-pointer gap-2"
+                          data-testid={`menu-edit-${vendor.id}`}
+                        >
+                          <Pencil className="h-4 w-4 text-gray-500" />
+                          Edit Vendor
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => window.open(`/vendors/${vendor.id}`, "_blank")}
+                          className="cursor-pointer gap-2"
+                          data-testid={`menu-open-${vendor.id}`}
+                        >
+                          <ExternalLink className="h-4 w-4 text-gray-500" />
+                          Open as Vendor
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() => handleToggleStatus(vendor)}
+                          className="cursor-pointer gap-2"
+                          data-testid={`menu-toggle-${vendor.id}`}
+                        >
+                          <Ban className="h-4 w-4 text-red-500" />
+                          {vendor.status === "active" ? "Inactivate" : "Activate"}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))

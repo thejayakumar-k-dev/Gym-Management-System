@@ -175,8 +175,8 @@ export default function AttendancePad() {
   // Full-screen preview view
   if (previewData && previewStyle) {
     return (
-      <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
-        <Card className={`w-full max-w-lg p-12 space-y-8 border-4 ${previewStyle.borderColor} ${previewStyle.bgColor}`}>
+      <div className="min-h-[calc(100dvh-8rem)] flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
+        <Card className={`w-full max-w-lg p-6 sm:p-12 space-y-8 border-4 ${previewStyle.borderColor} ${previewStyle.bgColor}`}>
           <div className="text-center space-y-6">
             <div className={`flex justify-center ${previewStyle.iconColor}`}>
               {previewStyle.icon}
@@ -231,8 +231,8 @@ export default function AttendancePad() {
 
   // Number pad view
   return (
-    <div className="min-h-[calc(100vh-8rem)] flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
-      <Card className="w-full max-w-md p-8 space-y-6 bg-card/80 backdrop-blur">
+    <div className="min-h-[calc(100dvh-8rem)] flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
+      <Card className="w-full max-w-md p-6 sm:p-8 space-y-6 bg-card/80 backdrop-blur">
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold text-foreground">Attendance</h1>
           <p className="text-sm text-muted-foreground">Enter your register number</p>
