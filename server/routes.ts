@@ -1,7 +1,8 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema } from "@shared/schema";
+import { log } from "./vite";
+import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorSupabaseKeySchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, ADMIN_CONTACT_NUMBER } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard stats
@@ -67,9 +68,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Student not found" });
       }
 
-      const updatedStudent = await storage.updateStudent(id, req.body);
+      const updatedStudent = await storage.updateStudent(
+        id,
+        insertStudentSchema.partial().parse(req.body)
+      );
       res.json(updatedStudent);
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid student data", details: error.errors });
+      }
       res.status(500).json({ error: "Failed to update student" });
     }
   });
@@ -114,8 +121,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/vendors", async (req, res) => {
     try {
-      const validatedData = insertVendorSchema.parse(req.body);
-      const vendor = await storage.createVendor(validatedData);
+      if (isVendorAdminPhone(req.body)) {
+        return res.status(403).json({
+          error: "You are the admin — this contact number cannot be used for a vendor",
+        });
+      }
+      const { password, ...body } = req.body;
+      const validatedData = insertVendorSchema.parse(body);
+      const vendor = await storage.createVendor(validatedData, password);
       res.status(201).json(vendor);
     } catch (error: any) {
       if (error.name === "ZodError") {
@@ -133,13 +146,319 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Vendor not found" });
       }
 
-      const updatedVendor = await storage.updateVendor(id, req.body);
+      if (isVendorAdminPhone(req.body)) {
+        return res.status(403).json({
+          error: "You are the admin — this contact number cannot be used for a vendor",
+        });
+      }
+
+      const { password, ...body } = req.body;
+      const updatedVendor = await storage.updateVendor(
+        id,
+        insertVendorSchema.partial().parse(body),
+        { password }
+      );
       res.json(updatedVendor);
     } catch (error: any) {
       if (error?.name === "ZodError") {
         return res.status(400).json({ error: "Invalid vendor data", details: error.errors });
       }
       res.status(500).json({ error: "Failed to update vendor" });
+    }
+  });
+
+  // One-click repair: create missing Supabase auth users for vendors and
+  // link any unlinked auth_uids. Safe to run repeatedly.
+  app.post("/api/vendors/backfill-auth", async (_req, res) => {
+    try {
+      const result = await storage.backfillVendorAuthUsers();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to backfill vendor auth users" });
+    }
+  });
+
+  // Block the platform admin's own contact number from being used for a vendor.
+  const adminContactNumber = ADMIN_CONTACT_NUMBER;
+  const isVendorAdminPhone = (data: any): boolean => {
+    const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+    return !!data && digits(data.phone) === adminContactNumber;
+  };
+
+  // Public status endpoint for the login screen: is this vendor's account blocked?
+  app.get("/api/vendor-accounts/status/:phone", async (req, res) => {
+    try {
+      const phone = String(req.params.phone || "").replace(/\D/g, "");
+      if (phone.length !== 10) {
+        return res.status(400).json({ error: "Valid 10-digit phone required" });
+      }
+
+      const vendors = await storage.getVendors();
+      const vendor = vendors.find((v) => v.phone === phone);
+      if (!vendor) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+
+      const status = await storage.isVendorBlocked(vendor.id);
+      if (!status) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+      res.json(status);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vendor status" });
+    }
+  });
+
+  // Vendor Accounts endpoints
+  app.get("/api/vendor-accounts", async (_req, res) => {
+    try {
+      const accounts = await storage.getVendorAccounts();
+      res.json(accounts);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vendor accounts" });
+    }
+  });
+
+  app.post("/api/vendor-accounts", async (req, res) => {
+    try {
+      const validatedData = insertVendorAccountSchema.parse(req.body);
+      const account = await storage.createVendorAccount(validatedData);
+      res.status(201).json(account);
+    } catch (error: any) {
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid vendor account data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create vendor account" });
+    }
+  });
+
+  app.patch("/api/vendor-accounts/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const account = await storage.getVendorAccountById(id);
+      if (!account) {
+        return res.status(404).json({ error: "Vendor account not found" });
+      }
+
+      const updated = await storage.updateVendorAccount(
+        id,
+        insertVendorAccountSchema.partial().parse(req.body)
+      );
+      res.json(updated);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid vendor account data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update vendor account" });
+    }
+  });
+
+  app.delete("/api/vendor-accounts/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const account = await storage.getVendorAccountById(id);
+      if (!account) {
+        return res.status(404).json({ error: "Vendor account not found" });
+      }
+
+      await storage.deleteVendorAccount(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete vendor account" });
+    }
+  });
+
+  // Consume one day for a vendor: paid days first, then credit days
+  // (7/7 → 6/7 → ... → 0/7 → blocked)
+  app.post("/api/vendor-accounts/consume", async (req, res) => {
+    try {
+      const vendorId = Number(req.body?.vendorId);
+      if (!Number.isInteger(vendorId) || vendorId <= 0) {
+        return res.status(400).json({ error: "Valid vendorId is required" });
+      }
+
+      const account = await storage.consumeVendorCreditDay(vendorId);
+      if (!account) {
+        return res.status(404).json({ error: "Vendor account not found" });
+      }
+
+      const remainingCredits = account.creditDays - account.usedCredits;
+      res.json({
+        account,
+        remainingCredits,
+        blocked: remainingCredits <= 0 && account.availableDays <= 0,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to consume vendor credit" });
+    }
+  });
+
+  // Vendor Supabase Keys endpoints
+  app.get("/api/vendor-supabase-keys", async (_req, res) => {
+    try {
+      const keys = await storage.getVendorSupabaseKeys();
+      res.json(keys);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch vendor supabase keys" });
+    }
+  });
+
+  // Admin keys come from .env and are always returned masked.
+  app.get("/api/admin-supabase-config", async (_req, res) => {
+    try {
+      const config = await storage.getAdminSupabaseConfig();
+      res.json(config);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch admin supabase config" });
+    }
+  });
+
+  app.post("/api/vendor-supabase-keys", async (req, res) => {
+    try {
+      const validatedData = insertVendorSupabaseKeySchema.parse(req.body);
+      const key = await storage.createVendorSupabaseKey(validatedData);
+      res.status(201).json(key);
+    } catch (error: any) {
+      if (error.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid supabase key data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create vendor supabase key" });
+    }
+  });
+
+  app.patch("/api/vendor-supabase-keys/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const key = await storage.getVendorSupabaseKeyById(id);
+      if (!key) {
+        return res.status(404).json({ error: "Vendor supabase key not found" });
+      }
+
+      const updated = await storage.updateVendorSupabaseKey(
+        id,
+        insertVendorSupabaseKeySchema.partial().parse(req.body)
+      );
+      res.json(updated);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res.status(400).json({ error: "Invalid supabase key data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update vendor supabase key" });
+    }
+  });
+
+  app.delete("/api/vendor-supabase-keys/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const key = await storage.getVendorSupabaseKeyById(id);
+      if (!key) {
+        return res.status(404).json({ error: "Vendor supabase key not found" });
+      }
+
+      await storage.deleteVendorSupabaseKey(id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete vendor supabase key" });
+    }
+  });
+
+  // Reports endpoint — aggregates data from the vendor's own Supabase database.
+  app.get("/api/reports/vendor/:vendorId", async (req, res) => {
+    try {
+      const vendorId = parseInt(req.params.vendorId);
+      if (Number.isNaN(vendorId)) {
+        return res.status(400).json({ error: "Invalid vendor id" });
+      }
+
+      const report = await storage.getVendorReport(vendorId);
+      if (!report) {
+        return res
+          .status(404)
+          .json({ error: "No Supabase keys configured for this vendor" });
+      }
+      res.json(report);
+    } catch (error) {
+      res
+        .status(502)
+        .json({ error: "Failed to load report from the vendor database" });
+    }
+  });
+
+  // Vendor service charge plan — plan config + live user count from the vendor DB.
+  app.get("/api/vendor-service-charge/:vendorId", async (req, res) => {
+    try {
+      const vendorId = parseInt(req.params.vendorId);
+      if (Number.isNaN(vendorId)) {
+        return res.status(400).json({ error: "Invalid vendor id" });
+      }
+      const summary = await storage.getVendorServiceCharge(vendorId);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load service charge plan" });
+    }
+  });
+
+  app.put("/api/vendor-service-charge/:vendorId", async (req, res) => {
+    try {
+      const vendorId = parseInt(req.params.vendorId);
+      if (Number.isNaN(vendorId)) {
+        return res.status(400).json({ error: "Invalid vendor id" });
+      }
+
+      const parsed = insertVendorServicePlanSchema.parse({
+        ...req.body,
+        vendorId,
+      });
+      await storage.upsertVendorServicePlan(vendorId, {
+        method: parsed.method,
+        perUserCharge: parsed.perUserCharge,
+        defaultPrice: parsed.defaultPrice,
+      });
+
+      if (req.body?.platformFee !== undefined) {
+        const platform = insertPlatformSettingsSchema.parse({
+          platformFee: req.body.platformFee,
+        });
+        await storage.updatePlatformSettings({
+          platformFee: platform.platformFee,
+        });
+      }
+
+      const summary = await storage.getVendorServiceCharge(vendorId);
+      res.json(summary);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res
+          .status(400)
+          .json({ error: "Invalid service plan data", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to save service charge plan" });
+    }
+  });
+
+  // Platform settings — global single row shared by all vendors.
+  app.get("/api/platform-settings", async (_req, res) => {
+    try {
+      res.json(await storage.getPlatformSettings());
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load platform settings" });
+    }
+  });
+
+  app.put("/api/platform-settings", async (req, res) => {
+    try {
+      const parsed = insertPlatformSettingsSchema.parse(req.body);
+      const settings = await storage.updatePlatformSettings({
+        platformFee: parsed.platformFee,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res
+          .status(400)
+          .json({ error: "Invalid platform settings", details: error.errors });
+      }
+      res.status(500).json({ error: "Failed to save platform settings" });
     }
   });
 
@@ -345,5 +664,60 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+
+  // ── Daily auto-reduction of vendor account days ──
+  // Available days reduce 1/day while > 0; when 0, credit counter ticks
+  // 7/7 → 6/7 → ... → 0/7; at 0/7 the account is blocked.
+  // Runs once at startup + once every 24h. Idempotent via last_billing_date.
+  const runDailyVendorBilling = async () => {
+    try {
+      const today = new Date().toISOString().split("T")[0];
+      const accounts = await storage.getVendorAccounts();
+      let availableReduced = 0;
+      let creditsConsumed = 0;
+      let blockedNow = 0;
+
+      for (const account of accounts) {
+        const lastBilling = account.lastBillingDate; // 'YYYY-MM-DD' or null
+        if (lastBilling === today) continue; // already ran today for this vendor
+
+        if (account.availableDays > 0) {
+          // Phase 1: burn paid days one per day
+          await storage.updateVendorAccount(account.id, {
+            availableDays: account.availableDays - 1,
+            lastBillingDate: today,
+          });
+          availableReduced++;
+        } else {
+          // Phase 2: paid days exhausted → burn credit days one per day
+          const remaining = account.creditDays - account.usedCredits;
+          if (remaining > 0) {
+            const used = account.usedCredits + 1;
+            await storage.updateVendorAccount(account.id, {
+              usedCredits: used,
+              lastBillingDate: today,
+            });
+            creditsConsumed++;
+            const after = account.creditDays - used;
+            if (after <= 0) blockedNow++;
+          }
+          // remaining <= 0 → already at 0/7, blocked; nothing to burn
+        }
+      }
+
+      if (availableReduced || creditsConsumed || blockedNow) {
+        log(
+          `Daily vendor billing: ${availableReduced} available days reduced, ${creditsConsumed} credits consumed, ${blockedNow} newly blocked`
+        );
+      }
+    } catch (error) {
+      console.error("Daily vendor billing failed:", error);
+    }
+  };
+
+  // Kick off immediately, then every 24 hours
+  runDailyVendorBilling();
+  setInterval(runDailyVendorBilling, 24 * 60 * 60 * 1000);
+
   return httpServer;
 }
