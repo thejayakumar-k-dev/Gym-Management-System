@@ -351,6 +351,29 @@ export default function Vendors() {
 
   const saving = createMutation.isPending || updateMutation.isPending;
 
+  const watchedValues = form.watch();
+
+  const isStep1Valid = Boolean(
+    watchedValues.firstName?.trim() &&
+    watchedValues.phone?.replace(/\D/g, "").length === 10 &&
+    (editingVendor
+      ? (!watchedValues.password || watchedValues.password.length >= 6)
+      : (watchedValues.password && watchedValues.password.length >= 6))
+  );
+
+  const isStep2Valid = Boolean(watchedValues.businessName?.trim());
+
+  const isStep3Valid = Boolean(
+    watchedValues.addressLine1?.trim() &&
+    watchedValues.city?.trim() &&
+    watchedValues.state?.trim() &&
+    /^\d{5,6}$/.test(watchedValues.zipcode?.trim() || "") &&
+    watchedValues.areaName?.trim()
+  );
+
+  const isNextDisabled = (step === 1 && !isStep1Valid) || (step === 2 && !isStep2Valid);
+  const isSubmitDisabled = !isStep3Valid;
+
   // ═══════════════════════════════════════════════════════════════
   // MULTI-STEP FORM VIEW — fills the main content area only
   // (sidebar + admin top bar stay visible)
@@ -801,7 +824,8 @@ export default function Vendors() {
                   <Button
                     type="button"
                     onClick={handleNext}
-                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white"
+                    disabled={isNextDisabled || saving}
+                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Next
                     <ChevronRight className="h-4 w-4 ml-1" />
@@ -810,8 +834,8 @@ export default function Vendors() {
                   <Button
                     type="button"
                     onClick={handleFinalSubmit}
-                    disabled={saving}
-                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white"
+                    disabled={isSubmitDisabled || saving}
+                    className="flex-1 sm:flex-none bg-red-600 hover:bg-red-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
                     data-testid="button-save-vendor"
                   >
                     {saving
