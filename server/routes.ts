@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { log } from "./vite";
+import { log } from "./logger";
 import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -703,9 +703,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   };
 
-  // Kick off immediately, then every 24 hours
-  runDailyVendorBilling();
-  setInterval(runDailyVendorBilling, 24 * 60 * 60 * 1000);
+  // In persistent servers, kick off daily billing interval.
+  // In serverless (Vercel), background timers are skipped.
+  if (process.env.VERCEL !== "1") {
+    runDailyVendorBilling();
+    setInterval(runDailyVendorBilling, 24 * 60 * 60 * 1000);
+  }
 
   return httpServer;
 }
