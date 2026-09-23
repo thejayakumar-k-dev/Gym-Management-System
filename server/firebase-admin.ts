@@ -28,7 +28,30 @@ function initAdmin() {
   try {
     const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
 
-    // 1. Check if FIREBASE_SERVICE_ACCOUNT_KEY is set (file path or JSON string)
+    // 1. Check if FIREBASE_SERVICE_ACCOUNT_BASE64 is set
+    const base64Env = process.env.FIREBASE_SERVICE_ACCOUNT_BASE64;
+    if (base64Env) {
+      try {
+        const decoded = Buffer.from(base64Env.trim(), "base64").toString("utf-8");
+        const serviceAccount = JSON.parse(decoded);
+        if (getApps().length === 0) {
+          adminApp = initializeApp({
+            credential: cert(serviceAccount),
+            projectId: serviceAccount.project_id || projectId,
+          });
+        } else {
+          adminApp = getApps()[0];
+        }
+        adminAuth = getAuth(adminApp);
+        adminInitialized = true;
+        console.log("[firebase-admin] Initialized via FIREBASE_SERVICE_ACCOUNT_BASE64 for project:", projectId);
+        return;
+      } catch (err: any) {
+        console.error("[firebase-admin] Failed to parse FIREBASE_SERVICE_ACCOUNT_BASE64:", err.message);
+      }
+    }
+
+    // 2. Check if FIREBASE_SERVICE_ACCOUNT_KEY is set (file path or JSON string)
     const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
     if (serviceAccountEnv) {
       let serviceAccount: any;
