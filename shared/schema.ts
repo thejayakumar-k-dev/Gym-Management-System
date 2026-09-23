@@ -12,9 +12,6 @@ export const ZIP_CODE_REGEX = /^\d{5,6}$/; // 5-6 digits
 export const ADDRESS_REGEX =
   /^[A-Za-z0-9][A-Za-z0-9 ,.#'\/()\-]*$/; // no special symbols
 
-// Platform admin's login phone (admin logs in as {phone}@gmail.com).
-// Vendors cannot register with this contact number.
-export const ADMIN_CONTACT_NUMBER = "7358175370";
 
 // Students table
 export const students = pgTable("students", {

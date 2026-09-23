@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getSession, signOut } from "@/lib/auth";
+import { onAuthStateChange, signOut } from "@/lib/auth";
 import { isAdminUser } from "@/lib/admin";
 import {
   LayoutDashboard,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import AdminDashboard from "@/pages/admin-dashboard";
 import Vendors from "@/pages/vendors";
 import VendorAccounts from "@/pages/vendor-accounts";
 import NeonProjects from "@/pages/neon-projects";
@@ -90,14 +91,12 @@ export default function AdminPanel() {
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    getSession()
-      .then(({ data }) => {
-        const user = data?.session?.user;
-        setUserId(user?.id ?? null);
-        setUserEmail(user?.email ?? null);
-        setChecking(false);
-      })
-      .catch(() => setChecking(false));
+    const unsubscribe = onAuthStateChange((user) => {
+      setUserId(user?.id ?? null);
+      setUserEmail(user?.email ?? null);
+      setChecking(false);
+    });
+    return unsubscribe;
   }, []);
 
   const handleLogout = async () => {
@@ -231,9 +230,7 @@ export default function AdminPanel() {
             ) : location === "/admin/reports" ? (
               <Reports />
             ) : (
-              <p className="text-gray-500 text-sm">
-                Welcome to the Admin Panel. More sections coming soon.
-              </p>
+              <AdminDashboard />
             )}
           </div>
         </main>

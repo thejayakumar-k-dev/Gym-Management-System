@@ -65,11 +65,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
 
     if (signInError) {
       setLoading(false);
-      if (signInError.message?.includes("Invalid login") || signInError.message?.includes("Invalid")) {
-        setError("Invalid phone number or password");
-      } else {
-        setError(signInError.message || "Sign in failed");
-      }
+      setError(signInError.message || "Sign in failed");
       return;
     }
 
@@ -263,7 +259,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       {/* ═══════════════════════════════════════════════
           RIGHT PANEL — 50% White + Centered Login
          ═══════════════════════════════════════════════ */}
-      <div className="relative flex w-full lg:w-[40%] flex-col bg-white overflow-y-auto">
+      <div className="relative flex w-full lg:w-[40%] flex-col bg-white overflow-hidden">
         {/* Subtle decorative elements */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-red-50 rounded-full blur-3xl opacity-50 -translate-y-1/2 translate-x-1/3 pointer-events-none" />
         <div className="absolute bottom-0 left-0 w-80 h-80 bg-red-50 rounded-full blur-3xl opacity-40 translate-y-1/3 -translate-x-1/4 pointer-events-none" />

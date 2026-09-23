@@ -1,37 +1,36 @@
 /**
- * Neon Auth client — replaces the old Supabase client.
+ * Authentication Client — Firebase.
  *
- * Uses @neondatabase/auth with the default Better Auth API.
- * Methods: signIn.email, signUp.email, getSession, signOut.
+ * All sign-in/sign-up/sign-out functions use Firebase Auth.
+ * Auth state is observed via onAuthStateChanged.
  *
- * Auth state is managed manually:
- * - On mount: call getSession() to check if user is logged in
- * - After login: call getSession() to get the new user
- * - After logout: clear user state manually
+ * Usage pattern:
+ * - getSession()         → check current session on mount
+ * - signInWithPassword() → login form submit
+ * - signOut()            → logout button
+ * - getIdToken()         → get Bearer token to send to Express API
  */
 
-import { createAuthClient } from "@neondatabase/auth";
+import {
+  auth,
+  signInWithEmailAndPassword,
+  firebaseSignOut,
+  onAuthStateChanged,
+  type User,
+} from "@/lib/firebase";
 
-const authUrl = import.meta.env.VITE_NEON_AUTH_URL;
+export type { User };
 
-if (!authUrl) {
-  throw new Error("Missing VITE_NEON_AUTH_URL environment variable");
+export interface AuthUser {
+  id: string;
+  email: string | null;
+  name?: string | null;
 }
 
-// Better Auth builds a `new URL()` from this value, which throws on a
-// relative path like "/api/auth". Resolve it against the current origin
-// so requests go to our own Express proxy (/api/auth/* → Neon Auth).
-const baseURL = /^https?:\/\//.test(authUrl)
-  ? authUrl
-  : `${window.location.origin}${authUrl.startsWith("/") ? "" : "/"}${authUrl}`;
+// ── Sign in ──────────────────────────────────────────────────────────────────
 
 /**
- * Neon Auth client with Better Auth API.
- */
-export const neonAuth = createAuthClient(baseURL);
-
-/**
- * Sign in with email/password.
+ * Sign in with email and password via Firebase Auth.
  */
 export async function signInWithPassword({
   email,
@@ -39,41 +38,117 @@ export async function signInWithPassword({
 }: {
   email: string;
   password: string;
-}) {
-  return neonAuth.signIn.email({ email, password });
+}): Promise<{ data?: { user: AuthUser }; error?: { message: string } }> {
+  try {
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+    return {
+      data: {
+        user: {
+          id: credential.user.uid,
+          email: credential.user.email,
+          name: credential.user.displayName,
+        },
+      },
+    };
+  } catch (err: any) {
+    const message = firebaseErrorMessage(err.code);
+    return { error: { message } };
+  }
 }
 
-/**
- * Sign up with email/password/name.
- */
-export async function signUpWithEmail({
-  email,
-  password,
-  name,
-}: {
-  email: string;
-  password: string;
-  name: string;
-}) {
-  return neonAuth.signUp.email({ email, password, name });
-}
+// ── Get Session ──────────────────────────────────────────────────────────────
 
 /**
- * Get current session.
- * Returns { data: { session: { user, session } } } or { data: null }.
+ * Returns the currently signed-in Firebase user as a session object,
+ * or null if no one is logged in.
  */
-export async function getSession() {
-  const result = await neonAuth.getSession();
+export async function getSession(): Promise<{
+  data: { session: { user: AuthUser } } | null;
+}> {
+  const user = auth.currentUser;
+  if (!user) return { data: null };
   return {
-    data: result.data
-      ? { session: result.data }
-      : null,
+    data: {
+      session: {
+        user: {
+          id: user.uid,
+          email: user.email,
+          name: user.displayName,
+        },
+      },
+    },
   };
 }
 
+// ── Get ID Token ─────────────────────────────────────────────────────────────
+
 /**
- * Sign out.
+ * Get the Firebase ID token for the current user.
+ * Sends this as `Authorization: Bearer <token>` to the Express API
+ * for server-side verification.
  */
-export async function signOut() {
-  return neonAuth.signOut();
+export async function getIdToken(): Promise<string | null> {
+  const user = auth.currentUser;
+  if (!user) return null;
+  return user.getIdToken();
+}
+
+// ── Sign Out ─────────────────────────────────────────────────────────────────
+
+/**
+ * Sign out the current Firebase user.
+ */
+export async function signOut(): Promise<{ error?: { message: string } }> {
+  try {
+    await firebaseSignOut(auth);
+    return {};
+  } catch (err: any) {
+    return { error: { message: err.message } };
+  }
+}
+
+// ── Auth State Listener ───────────────────────────────────────────────────────
+
+/**
+ * Subscribe to Firebase auth state changes.
+ * Returns an unsubscribe function.
+ */
+export function onAuthStateChange(
+  callback: (user: AuthUser | null) => void
+): () => void {
+  return onAuthStateChanged(auth, (firebaseUser) => {
+    if (firebaseUser) {
+      callback({
+        id: firebaseUser.uid,
+        email: firebaseUser.email,
+        name: firebaseUser.displayName,
+      });
+    } else {
+      callback(null);
+    }
+  });
+}
+
+// ── Error Messages ───────────────────────────────────────────────────────────
+
+function firebaseErrorMessage(code: string): string {
+  switch (code) {
+    case "auth/user-not-found":
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+    case "auth/invalid-email":
+      return "Invalid phone number or password";
+    case "auth/user-disabled":
+      return "This account has been disabled";
+    case "auth/too-many-requests":
+      return "Too many failed attempts. Please try again later";
+    case "auth/network-request-failed":
+      return "Network error. Please check your connection";
+    case "auth/email-already-in-use":
+      return "An account with this phone number already exists";
+    case "auth/weak-password":
+      return "Password must be at least 6 characters";
+    default:
+      return "Sign in failed. Please try again";
+  }
 }

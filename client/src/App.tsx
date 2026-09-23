@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
-import { getSession, signOut } from "@/lib/auth";
+import { onAuthStateChange, signOut, type AuthUser } from "@/lib/auth";
 import { isAdminUser } from "@/lib/admin";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -41,17 +41,17 @@ function Router() {
 
 function App() {
   const [location] = useLocation();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
+  // Start as true — Firebase resolves auth state asynchronously on mount
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    getSession().then(({ data }) => {
-      setUser(data?.session?.user ?? null);
-      setAuthLoading(false);
-    }).catch(() => {
-      setUser(null);
+    // onAuthStateChange returns the Firebase unsubscribe function
+    const unsubscribe = onAuthStateChange((firebaseUser) => {
+      setUser(firebaseUser);
       setAuthLoading(false);
     });
+    return unsubscribe;
   }, []);
 
   if (authLoading) {
@@ -66,15 +66,13 @@ function App() {
     return (
       <ThemeProvider defaultTheme="light">
         <LoginPage onLogin={() => {
-          getSession().then(({ data }) => {
-            setUser(data?.session?.user ?? null);
-          });
+          // onAuthStateChange will automatically fire and set user — no manual call needed
         }} />
       </ThemeProvider>
     );
   }
 
-  // Admin users get the dedicated admin panel — enforced by UID check.
+  // Admin users get the dedicated admin panel — enforced by email check.
   if (isAdminUser(user)) {
     return (
       <QueryClientProvider client={queryClient}>
@@ -91,7 +89,7 @@ function App() {
 
   const handleLogout = async () => {
     await signOut();
-    setUser(null);
+    // onAuthStateChange will automatically set user to null
   };
 
   const style = {

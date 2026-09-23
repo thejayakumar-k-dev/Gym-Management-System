@@ -34,7 +34,6 @@ import {
   type PlatformSettings,
   type VendorServiceChargeSummary,
   type VendorReport,
-  ADMIN_CONTACT_NUMBER,
 } from "@shared/schema";
 import {
   createNeonAuthUser,
@@ -306,7 +305,7 @@ export class DrizzleStorage implements IStorage {
     return { ...newVendor, authUid };
   }
 
-  async updateVendor(id: number, vendor: Partial<InsertVendor>, options?: { password?: string; sessionCookie?: string }): Promise<Vendor> {
+  async updateVendor(id: number, vendor: Partial<InsertVendor>, options?: { password?: string }): Promise<Vendor> {
     const updateData: Record<string, unknown> = {};
     if (vendor.firstName !== undefined) updateData.firstName = vendor.firstName;
     if (vendor.lastName !== undefined) updateData.lastName = vendor.lastName;
@@ -323,7 +322,7 @@ export class DrizzleStorage implements IStorage {
     if (vendor.areaName !== undefined) updateData.areaName = vendor.areaName;
     if (vendor.status !== undefined) updateData.status = vendor.status;
 
-    // Sync Neon Auth user if phone/password/name change
+    // Sync Firebase Auth user if phone/password/name changes
     const current = await this.getVendorById(id);
     if (current?.authUid) {
       const authUpdates: { email?: string; password?: string; name?: string } = {};
@@ -335,20 +334,13 @@ export class DrizzleStorage implements IStorage {
         authUpdates.name = `${firstName} ${lastName}`.trim();
       }
       if (Object.keys(authUpdates).length > 0) {
-        const authResult = await updateNeonAuthUser(
-          current.authUid,
-          authUpdates,
-          options?.sessionCookie
-        );
+        const authResult = await updateNeonAuthUser(current.authUid, authUpdates);
         if (authResult.error) {
-          // Surface to the admin UI — a silently-unsynced password means
-          // the vendor can't log in with what the admin just typed.
           throw new Error(`Auth sync failed: ${authResult.error}`);
         }
       }
     } else if (options?.password) {
-      // Vendor has no linked auth user yet — create it now so the
-      // password set during edit actually produces a working login.
+      // Vendor has no linked auth user yet — create one with Firebase Auth.
       const firstName = vendor.firstName ?? current?.firstName ?? "";
       const lastName = vendor.lastName ?? current?.lastName ?? "";
       const phone = vendor.phone ?? current?.phone;
@@ -530,10 +522,10 @@ export class DrizzleStorage implements IStorage {
 
   async getAdminNeonConfig() {
     return {
-      authUrl: maskSecret(process.env.NEON_AUTH_BASE_URL),
-      apiKey: maskSecret(process.env.NEON_AUTH_API_KEY),
+      authUrl: null,
+      apiKey: null,
       databaseUrl: maskSecret(process.env.NEON_DATABASE_URL),
-      authSecret: maskSecret(process.env.NEON_AUTH_COOKIE_SECRET),
+      authSecret: null,
       port: Number(process.env.PORT) || 5000,
     };
   }

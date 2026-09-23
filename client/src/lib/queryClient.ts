@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { getIdToken } from "@/lib/auth";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -7,14 +8,28 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/**
+ * Build auth headers — attaches the Firebase ID token as Bearer if a user is logged in.
+ */
+async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+  const token = await getIdToken();
+  return token
+    ? { Authorization: `Bearer ${token}`, ...extra }
+    : { ...extra };
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers = await authHeaders(
+    data ? { "Content-Type": "application/json" } : {}
+  );
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
     credentials: "include",
   });
@@ -29,7 +44,9 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
+    const headers = await authHeaders();
     const res = await fetch(queryKey.join("/") as string, {
+      headers,
       credentials: "include",
     });
 

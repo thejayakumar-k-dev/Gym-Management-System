@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { log } from "./vite";
-import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, ADMIN_CONTACT_NUMBER } from "@shared/schema";
+import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema } from "@shared/schema";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard stats
@@ -159,9 +159,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedVendor = await storage.updateVendor(
         id,
         insertVendorSchema.partial().parse(body),
-        // Forward the admin's session — Neon Auth user management
-        // (password/email changes) requires an admin session cookie.
-        { password, sessionCookie: req.headers.cookie }
+        { password }
       );
       res.json(updatedVendor);
     } catch (error: any) {
@@ -186,11 +184,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Block the platform admin's own contact number from being used for a vendor.
-  const adminContactNumber = ADMIN_CONTACT_NUMBER;
   const isVendorAdminPhone = (data: any): boolean => {
+    const adminPhone = process.env.ADMIN_PHONE;
+    if (!adminPhone) return false;
     const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
-    return !!data && digits(data.phone) === adminContactNumber;
+    return !!data && digits(data.phone) === adminPhone;
   };
 
   // Public status endpoint for the login screen: is this vendor's account blocked?

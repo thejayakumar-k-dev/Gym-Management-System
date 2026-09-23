@@ -64,7 +64,6 @@ import {
   PHONE_REGEX,
   ZIP_CODE_REGEX,
   ADDRESS_REGEX,
-  ADMIN_CONTACT_NUMBER,
   type Vendor,
 } from "@shared/schema";
 
@@ -115,16 +114,7 @@ const baseFormSchema = z.object({
     .regex(NAME_REGEX, "Area name cannot contain special characters"),
 });
 
-// The platform admin's own contact number can't be used for a vendor.
-const formSchema = baseFormSchema.superRefine((data, ctx) => {
-  if (data.phone.replace(/\D/g, "") === ADMIN_CONTACT_NUMBER) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ["phone"],
-      message: "You are the admin — this contact number cannot be used for a vendor",
-    });
-  }
-});
+const formSchema = baseFormSchema;
 
 type FormValues = z.infer<typeof formSchema>;
 
@@ -509,15 +499,6 @@ export default function Vendors() {
                               className="h-11" data-testid="input-phone"
                             />
                           </FormControl>
-                          {/* Real-time warning while typing the admin's number */}
-                          {field.value === ADMIN_CONTACT_NUMBER && (
-                            <p
-                              className="text-sm font-medium text-red-600"
-                              data-testid="text-admin-phone-warning"
-                            >
-                              You are the admin — this contact number cannot be used for a vendor
-                            </p>
-                          )}
                           <FormMessage />
                         </FormItem>
                       )}
