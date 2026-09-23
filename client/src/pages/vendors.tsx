@@ -1015,7 +1015,14 @@ export default function Vendors() {
                           Edit Vendor
                         </DropdownMenuItem>
                         <DropdownMenuItem
-                          onClick={() => window.open(`/vendors/${vendor.id}`, "_blank")}
+                          onSelect={() => {
+                            sessionStorage.setItem("admin_active_vendor_id", String(vendor.id));
+                            window.open(`/vendors/${vendor.id}`, "_blank");
+                          }}
+                          onClick={() => {
+                            sessionStorage.setItem("admin_active_vendor_id", String(vendor.id));
+                            window.open(`/vendors/${vendor.id}`, "_blank");
+                          }}
                           className="cursor-pointer gap-2"
                           data-testid={`menu-open-${vendor.id}`}
                         >

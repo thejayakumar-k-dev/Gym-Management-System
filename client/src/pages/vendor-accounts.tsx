@@ -51,6 +51,7 @@ import {
   RefreshCw,
   Ban,
   X,
+  ExternalLink,
 } from "lucide-react";
 import type {
   Vendor,
@@ -575,6 +576,21 @@ export default function VendorAccounts() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52 z-50">
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            sessionStorage.setItem("admin_active_vendor_id", String(row.vendor.id));
+                            window.open(`/vendors/${row.vendor.id}`, "_blank");
+                          }}
+                          onClick={() => {
+                            sessionStorage.setItem("admin_active_vendor_id", String(row.vendor.id));
+                            window.open(`/vendors/${row.vendor.id}`, "_blank");
+                          }}
+                          className="cursor-pointer gap-2"
+                          data-testid={`menu-open-vendor-${row.vendor.id}`}
+                        >
+                          <ExternalLink className="h-4 w-4 text-gray-500" />
+                          Open as Vendor
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           className="cursor-pointer gap-2"
                           data-testid={`menu-view-history-${row.vendor.id}`}

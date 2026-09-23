@@ -79,9 +79,11 @@ const menuItems = [
 
 interface AppSidebarProps {
   onLogout?: () => void;
+  vendorName?: string;
+  isImpersonating?: boolean;
 }
 
-export function AppSidebar({ onLogout }: AppSidebarProps) {
+export function AppSidebar({ onLogout, vendorName, isImpersonating }: AppSidebarProps) {
   const [location] = useLocation();
   const { theme, setTheme } = useTheme();
   const { settings } = useGymSettings();
@@ -105,11 +107,13 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
               settings.icon
             )}
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-foreground">
-              {settings.name}
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-foreground truncate">
+              {vendorName || settings.name || "GymDesk"}
             </h1>
-            <p className="text-xs text-muted-foreground">Management System</p>
+            <p className="text-xs text-muted-foreground truncate">
+              {isImpersonating ? "Vendor Panel" : "Management System"}
+            </p>
           </div>
         </div>
       </SidebarHeader>
@@ -167,7 +171,7 @@ export function AppSidebar({ onLogout }: AppSidebarProps) {
           data-testid="button-logout"
         >
           <LogOut className="h-5 w-5 flex-shrink-0" />
-          <span className="font-medium">Logout</span>
+          <span className="font-medium">{isImpersonating ? "Exit to Admin" : "Logout"}</span>
         </Button>
       </SidebarFooter>
     </Sidebar>
