@@ -80,7 +80,7 @@ const baseFormSchema = z.object({
     .optional()
     .or(z.literal("")),
   phone: z.string().regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),
-  password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
+  password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")),
   email: z
     .string()
     .email("Invalid email address")
@@ -289,6 +289,24 @@ export default function Vendors() {
   };
 
   const handleNext = async () => {
+    // Require password on Step 1 when creating a new vendor
+    if (step === 1 && !editingVendor) {
+      const pwd = form.getValues("password")?.trim();
+      if (!pwd) {
+        form.setError("password", {
+          type: "manual",
+          message: "Login password is required",
+        });
+        return;
+      }
+      if (pwd.length < 6) {
+        form.setError("password", {
+          type: "manual",
+          message: "Password must be at least 6 characters",
+        });
+        return;
+      }
+    }
     const fields = STEPS[step - 1].fields as unknown as (keyof FormValues)[];
     const valid = await form.trigger(fields);
     if (valid) setStep((s) => Math.min(s + 1, STEPS.length));
@@ -308,7 +326,15 @@ export default function Vendors() {
   const handleFinalSubmit = async () => {
     // Require password only when creating a new vendor
     if (!editingVendor) {
-      await form.trigger("password");
+      const pwd = form.getValues("password")?.trim();
+      if (!pwd || pwd.length < 6) {
+        form.setError("password", {
+          type: "manual",
+          message: !pwd ? "Login password is required" : "Password must be at least 6 characters",
+        });
+        setStep(1);
+        return;
+      }
     }
     const valid = await form.trigger(); // validate everything
     if (!valid) {
@@ -318,10 +344,6 @@ export default function Vendors() {
         (s.fields as readonly string[]).some((f) => f in errors)
       );
       if (firstBadStep >= 0) setStep(firstBadStep + 1);
-      // Surface the admin-phone rejection prominently
-      if (errors.phone?.message) {
-        toast({ title: errors.phone.message as string, variant: "destructive" });
-      }
       return;
     }
     onSubmit(form.getValues());
@@ -530,7 +552,7 @@ export default function Vendors() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          {editingVendor ? "Change Password" : "Login Password"} *
+                          {editingVendor ? "Change Password (Optional)" : "Login Password *"}
                         </FormLabel>
                         <FormControl>
                           <Input
