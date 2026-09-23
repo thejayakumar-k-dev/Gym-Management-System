@@ -1,18 +1,21 @@
 /**
  * Firebase Admin SDK — Server-side.
  *
- * Initializes Firebase Admin using a Service Account.
+ * Handles administrative actions:
+ * - Creating Firebase Auth users for new vendors (with email {phone}@gmail.com & password)
+ * - Updating Firebase Auth users (passwords & phone/email changes)
+ * - Deleting Firebase Auth users
+ * - Verifying ID tokens
  *
- * Set the following environment variables:
- *   FIREBASE_PROJECT_ID     — from Service Account JSON
- *   FIREBASE_CLIENT_EMAIL   — from Service Account JSON
- *   FIREBASE_PRIVATE_KEY    — from Service Account JSON (with \n literal)
- *
- * All three are required for user management (createUser, updateUser, deleteUser).
- * Without them, Firebase Admin will log a warning and user management will be skipped.
+ * Supported credentials in .env:
+ * 1. FIREBASE_SERVICE_ACCOUNT_KEY: path to serviceAccountKey.json OR raw JSON string
+ * 2. GOOGLE_APPLICATION_CREDENTIALS: path to serviceAccountKey.json
+ * 3. FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY
  */
 
 import admin from "firebase-admin";
+import fs from "fs";
+import path from "path";
 
 let adminInitialized = false;
 let adminAuth: admin.auth.Auth | null = null;
@@ -20,28 +23,78 @@ let adminAuth: admin.auth.Auth | null = null;
 function initAdmin() {
   if (adminInitialized) return;
 
-  const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
-  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+  try {
+    const projectId = process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID;
 
-  if (!projectId || !clientEmail || !privateKey) {
+    // 1. Check if FIREBASE_SERVICE_ACCOUNT_KEY is set (file path or JSON string)
+    const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
+    if (serviceAccountEnv) {
+      let serviceAccount: any;
+      if (serviceAccountEnv.trim().startsWith("{")) {
+        serviceAccount = JSON.parse(serviceAccountEnv);
+      } else {
+        const filePath = path.isAbsolute(serviceAccountEnv)
+          ? serviceAccountEnv
+          : path.resolve(process.cwd(), serviceAccountEnv);
+        if (fs.existsSync(filePath)) {
+          serviceAccount = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+        }
+      }
+
+      if (serviceAccount) {
+        if (admin.apps.length === 0) {
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            projectId: serviceAccount.project_id || projectId,
+          });
+        }
+        adminAuth = admin.auth();
+        adminInitialized = true;
+        console.log("[firebase-admin] Initialized via FIREBASE_SERVICE_ACCOUNT_KEY for project:", projectId);
+        return;
+      }
+    }
+
+    // 2. Check GOOGLE_APPLICATION_CREDENTIALS file path
+    const googleAppCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (googleAppCreds && fs.existsSync(googleAppCreds)) {
+      if (admin.apps.length === 0) {
+        admin.initializeApp({
+          credential: admin.credential.applicationDefault(),
+          projectId,
+        });
+      }
+      adminAuth = admin.auth();
+      adminInitialized = true;
+      console.log("[firebase-admin] Initialized via GOOGLE_APPLICATION_CREDENTIALS");
+      return;
+    }
+
+    // 3. Check individual env variables
+    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+    const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+    if (projectId && clientEmail && privateKey) {
+      if (admin.apps.length === 0) {
+        admin.initializeApp({
+          credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
+        });
+      }
+      adminAuth = admin.auth();
+      adminInitialized = true;
+      console.log("[firebase-admin] Initialized via CLIENT_EMAIL & PRIVATE_KEY for project:", projectId);
+      return;
+    }
+
     console.warn(
-      "[firebase-admin] FIREBASE_PROJECT_ID / FIREBASE_CLIENT_EMAIL / FIREBASE_PRIVATE_KEY " +
-        "not set — server-side user management (vendor create/update/delete) will be skipped."
+      "[firebase-admin] Service Account credentials not provided. " +
+      "Server-side vendor account creation and password updates in Firebase will require FIREBASE_SERVICE_ACCOUNT_KEY."
     );
     adminInitialized = true;
-    return;
+  } catch (err: any) {
+    console.error("[firebase-admin] Initialization error:", err.message);
+    adminInitialized = true;
   }
-
-  if (admin.apps.length === 0) {
-    admin.initializeApp({
-      credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
-    });
-  }
-
-  adminAuth = admin.auth();
-  adminInitialized = true;
-  console.log("[firebase-admin] Initialized for project:", projectId);
 }
 
 // ── User management ───────────────────────────────────────────────────────────
@@ -57,8 +110,9 @@ export async function adminCreateUser(
 ): Promise<{ id?: string; error?: string }> {
   initAdmin();
   if (!adminAuth) {
-    console.warn("[firebase-admin] Skipping user creation — Admin SDK not configured.");
-    return { id: undefined };
+    return {
+      error: "Firebase Service Account key is required on the server to automatically create vendor logins in Firebase. Set FIREBASE_SERVICE_ACCOUNT_KEY in .env.",
+    };
   }
   try {
     const user = await adminAuth.createUser({ email, password, displayName });
@@ -79,8 +133,9 @@ export async function adminUpdateUser(
 ): Promise<{ error?: string }> {
   initAdmin();
   if (!adminAuth) {
-    console.warn("[firebase-admin] Skipping user update — Admin SDK not configured.");
-    return {};
+    return {
+      error: "Firebase Service Account key is required on the server to sync password updates to Firebase. Set FIREBASE_SERVICE_ACCOUNT_KEY in .env.",
+    };
   }
   try {
     await adminAuth.updateUser(uid, updates);
@@ -98,8 +153,9 @@ export async function adminUpdateUser(
 export async function adminDeleteUser(uid: string): Promise<{ error?: string }> {
   initAdmin();
   if (!adminAuth) {
-    console.warn("[firebase-admin] Skipping user delete — Admin SDK not configured.");
-    return {};
+    return {
+      error: "Firebase Service Account key is required on the server to delete vendor logins from Firebase.",
+    };
   }
   try {
     await adminAuth.deleteUser(uid);
@@ -127,4 +183,3 @@ export async function verifyIdToken(
     return null;
   }
 }
-
