@@ -274,8 +274,13 @@ export class DrizzleStorage implements IStorage {
 
     // 3. Auto-provision Neon project for this gym
     try {
-      const safeLastName = vendor.lastName ? `-${vendor.lastName}` : "";
-      const projectName = `Gym-${vendor.firstName}${safeLastName}`.replace(/[^a-zA-Z0-9-]/g, "");
+      // Prioritize the vendor's Business/Gym Name for the Neon project name
+      const rawName = vendor.businessName?.trim() || `Gym-${vendor.firstName}`;
+      const projectName = rawName
+        .replace(/[^a-zA-Z0-9-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 60) || `Gym-${newVendor.id}`;
       const project = await createNeonProject(projectName);
 
       // Get connection string from the new project
