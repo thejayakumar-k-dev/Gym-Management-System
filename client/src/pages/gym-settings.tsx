@@ -1,9 +1,9 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useGymSettings } from "@/hooks/use-gym-settings";
+import { useGymName } from "@/lib/gym-name";
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, X, Upload } from "lucide-react";
 
@@ -20,8 +20,8 @@ const ICON_STYLES = [
 
 export default function GymSettings() {
   const { settings, updateSettings } = useGymSettings();
+  const gymName = useGymName();
   const { toast } = useToast();
-  const [gymName, setGymName] = useState(settings.name);
   const [selectedStyle, setSelectedStyle] = useState(0);
   const [gymImage, setGymImage] = useState(settings.logoImage || "");
   const [imageType, setImageType] = useState<"icon" | "custom">(settings.logoImage && settings.logoImage.startsWith("data:") ? "custom" : "icon");
@@ -76,7 +76,6 @@ export default function GymSettings() {
 
   const handleSaveSettings = () => {
     updateSettings({
-      name: gymName,
       icon: ICON_STYLES[selectedStyle].icon,
       accentColor: primaryColor,
       logoImage: gymImage,
@@ -104,18 +103,11 @@ export default function GymSettings() {
             <CardTitle>Branding Settings</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* Gym Name */}
-            <div className="space-y-2">
-              <Label htmlFor="gym-name">
-                Gym Name <span className="text-red-500">*</span>
-              </Label>
-              <Input
-                id="gym-name"
-                value={gymName}
-                onChange={(e) => setGymName(e.target.value)}
-                placeholder="e.g., JK GYM"
-                data-testid="input-gym-name"
-              />
+            <div className="rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 px-4 py-3">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                Gym name (<span className="font-medium">{gymName}</span>) is set
+                by the admin and cannot be changed here.
+              </p>
             </div>
 
             {/* Gym Logo/Image */}
@@ -273,7 +265,7 @@ export default function GymSettings() {
                     )}
                   </div>
                   <div>
-                    <div className="font-bold text-foreground text-sm">{settings.name || "GymDesk"}</div>
+                    <div className="font-bold text-foreground text-sm">{gymName}</div>
                     <div className="text-xs text-muted-foreground">Management System</div>
                   </div>
                 </div>

@@ -10,7 +10,8 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
-import { ShieldCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { ShieldCheck, ArrowLeft } from "lucide-react";
 import type { Vendor } from "@shared/schema";
 import Dashboard from "@/pages/dashboard";
 import Students from "@/pages/students";
@@ -24,6 +25,7 @@ import GymSettings from "@/pages/gym-settings";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 import AdminPanel from "@/pages/admin";
+import { GymNameContext } from "@/lib/gym-name";
 
 function Router() {
   return (
@@ -76,6 +78,18 @@ function AuthenticatedApp({
     enabled: !!impersonatedVendorId && isAdmin,
   });
 
+  // Vendor users sign in with their phone number as `{phone}@gmail.com`.
+  // Resolve their record (which holds the admin-set business name) so the
+  // vendor panel shows the right gym name.
+  const vendorPhone = user.email?.match(/^(\d{10})@gmail\.com$/)?.[1] ?? undefined;
+  const { data: vendorStatus } = useQuery<{
+    vendorName: string;
+    businessName: string | null;
+  }>({
+    queryKey: ["/api/vendor-accounts/status", vendorPhone],
+    enabled: !!vendorPhone && !isAdmin,
+  });
+
   const handleExitVendorMode = () => {
     sessionStorage.removeItem("admin_active_vendor_id");
     setImpersonatedVendorId(null);
@@ -100,6 +114,8 @@ function AuthenticatedApp({
   const vendorDisplayName =
     activeVendor?.businessName ||
     (activeVendor ? `${activeVendor.firstName} ${activeVendor.lastName}`.trim() : undefined) ||
+    vendorStatus?.businessName ||
+    vendorStatus?.vendorName ||
     (impersonatedVendorId ? `Vendor #${impersonatedVendorId}` : undefined);
 
   const style = {
@@ -109,52 +125,60 @@ function AuthenticatedApp({
 
   return (
     <ThemeProvider defaultTheme="light">
-      <TooltipProvider>
-        <div className="flex flex-col h-dvh w-full">
-          {isAdmin && impersonatedVendorId && (
-            <div className="bg-amber-600 text-white px-4 py-2 flex items-center justify-between text-xs sm:text-sm font-medium z-50 shrink-0 shadow-sm">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-amber-200 shrink-0" />
-                <span>
-                  Admin Mode: Viewing vendor panel for <strong>{vendorDisplayName}</strong>
-                </span>
-              </div>
-              <Button
-                size="sm"
-                variant="secondary"
-                className="h-7 text-xs bg-white text-gray-900 hover:bg-gray-100 font-semibold"
-                onClick={handleExitVendorMode}
-                data-testid="button-exit-vendor-mode"
-              >
-                Return to Admin Panel
-              </Button>
-            </div>
-          )}
-
-          <div className="flex-1 flex min-h-0 overflow-hidden">
-            <SidebarProvider style={style as React.CSSProperties}>
-              <div className="flex h-full w-full">
-                <AppSidebar
-                  onLogout={isAdmin && impersonatedVendorId ? handleExitVendorMode : onLogout}
-                  vendorName={vendorDisplayName}
-                  isImpersonating={!!(isAdmin && impersonatedVendorId)}
-                />
-                <div className="flex flex-col flex-1 overflow-hidden">
-                  <header className="flex items-center h-14 px-4 sm:px-6 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <GymNameContext.Provider value={vendorDisplayName ?? "GymDesk"}>
+<TooltipProvider>
+          <SidebarProvider style={style as React.CSSProperties}>
+            <div className="flex h-dvh w-full">
+              <AppSidebar
+                onLogout={isAdmin && impersonatedVendorId ? handleExitVendorMode : onLogout}
+                vendorName={vendorDisplayName}
+                isImpersonating={!!(isAdmin && impersonatedVendorId)}
+              />
+              <div className="flex flex-col flex-1 overflow-hidden">
+                <header className="flex items-center justify-between h-14 px-4 sm:px-6 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+                  <div className="flex items-center gap-3 min-w-0">
                     <SidebarTrigger data-testid="button-sidebar-toggle" />
-                  </header>
-                  <main className="flex-1 overflow-auto p-4 sm:p-6 bg-background">
-                    <div className="max-w-7xl mx-auto">
-                      <Router />
-                    </div>
-                  </main>
-                </div>
+                    {isAdmin && impersonatedVendorId && (
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="h-4 w-px bg-gray-200 hidden sm:block" />
+                        <Badge
+                          variant="outline"
+                          className="bg-amber-50 text-amber-800 border-amber-300 gap-1.5 py-0.5 px-2.5 font-medium text-xs rounded-full shrink-0"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
+                          <span>Admin View</span>
+                        </Badge>
+                        <span className="text-sm font-semibold text-gray-700 truncate hidden md:inline">
+                          {vendorDisplayName}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {isAdmin && impersonatedVendorId && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleExitVendorMode}
+                      className="h-8 text-xs border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 font-medium gap-1.5 shrink-0"
+                      data-testid="button-exit-vendor-mode"
+                    >
+                      <ArrowLeft className="h-3.5 w-3.5" />
+                      <span>Return to Admin</span>
+                    </Button>
+                  )}
+                </header>
+                <main className="flex-1 overflow-auto p-4 sm:p-6 bg-background">
+                  <div className="max-w-7xl mx-auto">
+                    <Router />
+                  </div>
+                </main>
               </div>
-            </SidebarProvider>
-          </div>
-        </div>
-        <Toaster />
-      </TooltipProvider>
+            </div>
+          </SidebarProvider>
+          <Toaster />
+        </TooltipProvider>
+      </GymNameContext.Provider>
     </ThemeProvider>
   );
 }

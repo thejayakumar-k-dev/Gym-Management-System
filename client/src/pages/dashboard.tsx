@@ -3,7 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Users, UserCheck, UserX, CalendarCheck } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { useGymSettings } from "@/hooks/use-gym-settings";
+import { useGymName } from "@/lib/gym-name";
 import type { Student } from "@shared/schema";
 
 interface DashboardStats {
@@ -14,7 +14,7 @@ interface DashboardStats {
 }
 
 export default function Dashboard() {
-  const { settings } = useGymSettings();
+  const gymName = useGymName();
   const { data: stats, isLoading } = useQuery<DashboardStats>({
     queryKey: ["/api/dashboard/stats"],
   });
@@ -68,7 +68,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Welcome to {settings.name || "GymDesk"} Management System</p>
+        <p className="text-sm text-muted-foreground mt-1">Welcome to {gymName} Management System</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
