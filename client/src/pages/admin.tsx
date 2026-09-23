@@ -11,14 +11,12 @@ import {
   Store,
   Wallet,
   FileText,
-  KeyRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import AdminDashboard from "@/pages/admin-dashboard";
 import Vendors from "@/pages/vendors";
 import VendorAccounts from "@/pages/vendor-accounts";
-import NeonProjects from "@/pages/neon-projects";
 import Reports from "@/pages/reports";
 
 const sidebarItems = [
@@ -26,7 +24,6 @@ const sidebarItems = [
   { title: "Vendors", icon: Store, url: "/admin/vendors" },
   { title: "Vendor Accounts", icon: Wallet, url: "/admin/vendor-accounts" },
   { title: "Reports", icon: FileText, url: "/admin/reports" },
-  { title: "Neon Projects", icon: KeyRound, url: "/admin/neon-projects" },
 ];
 
 const pageTitles: Record<string, string> = {
@@ -34,7 +31,6 @@ const pageTitles: Record<string, string> = {
   "/admin/vendors": "Vendors",
   "/admin/vendor-accounts": "Vendor Accounts",
   "/admin/reports": "Reports",
-  "/admin/neon-projects": "Neon Projects",
 };
 
 type SidebarNavProps = {
@@ -225,8 +221,6 @@ export default function AdminPanel() {
               <Vendors />
             ) : location === "/admin/vendor-accounts" ? (
               <VendorAccounts />
-            ) : location === "/admin/neon-projects" ? (
-              <NeonProjects />
             ) : location === "/admin/reports" ? (
               <Reports />
             ) : (
