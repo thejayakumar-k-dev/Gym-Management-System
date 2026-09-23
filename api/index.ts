@@ -1,6 +1,4 @@
-import "dotenv/config";
 import express from "express";
-import { registerRoutes } from "../server/routes.js";
 
 const app = express();
 
@@ -18,20 +16,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Health check endpoint
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    env: {
-      hasDatabaseUrl: Boolean(process.env.DATABASE_URL || process.env.NEON_DATABASE_URL),
-      hasFirebaseServiceAccount: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || process.env.FIREBASE_SERVICE_ACCOUNT_KEY),
-      hasEncryptionKey: Boolean(process.env.VENDOR_CONFIG_ENCRYPTION_KEY),
-      hasNeonApiKey: Boolean(process.env.NEON_API_KEY),
-    },
-  });
-});
-
 // Normalize request URL for /api prefix
 app.use((req, _res, next) => {
   const matched = (req.headers["x-matched-path"] as string) || "";
@@ -46,18 +30,48 @@ app.use((req, _res, next) => {
   next();
 });
 
+// Immediate health check route
+app.get("/api/health", (_req, res) => {
+  return res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    env: {
+      hasDatabaseUrl: Boolean(process.env.DATABASE_URL || process.env.NEON_DATABASE_URL),
+      hasFirebaseServiceAccount: Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64 || process.env.FIREBASE_SERVICE_ACCOUNT_KEY),
+      hasEncryptionKey: Boolean(process.env.VENDOR_CONFIG_ENCRYPTION_KEY),
+      hasNeonApiKey: Boolean(process.env.NEON_API_KEY),
+      nodeEnv: process.env.NODE_ENV,
+      vercel: process.env.VERCEL,
+    },
+  });
+});
+
 let routesRegistered = false;
+let routeRegisterError: any = null;
 
 async function setup() {
-  if (!routesRegistered) {
+  if (routesRegistered) return;
+  try {
+    const { registerRoutes } = await import("../server/routes.js");
     await registerRoutes(app);
     routesRegistered = true;
+  } catch (err: any) {
+    routeRegisterError = err;
+    console.error("Failed to register routes:", err);
+    throw err;
   }
 }
 
 export default async function handler(req: any, res: any) {
   try {
-    await setup();
+    const rawUrl = (req as any).originalUrl || req.url || "";
+    const matched = (req.headers["x-matched-path"] as string) || "";
+    const isHealthCheck = rawUrl.includes("/api/health") || matched.includes("/api/health");
+
+    if (!isHealthCheck) {
+      await setup();
+    }
+
     return new Promise((resolve, reject) => {
       app(req, res, (err: any) => {
         if (err) return reject(err);
@@ -70,8 +84,9 @@ export default async function handler(req: any, res: any) {
     console.error("Serverless handler error:", err);
     return res.status(500).json({
       error: "Internal Server Error",
-      message: err?.message,
-      stack: process.env.NODE_ENV === "production" ? undefined : err?.stack,
+      message: err?.message || String(err),
+      stack: err?.stack,
+      routeRegisterError: routeRegisterError ? String(routeRegisterError?.stack || routeRegisterError) : null,
     });
   }
 }
