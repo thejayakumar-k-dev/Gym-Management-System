@@ -24,6 +24,7 @@ export default function Dashboard() {
   });
 
   const expiredMembers = students?.filter((s) => {
+    if (!s.expiryDate) return false;
     const expiryDate = new Date(s.expiryDate);
     const today = new Date();
     // Compare only the date part (set time to 00:00:00)

@@ -34,7 +34,7 @@ import {
   type PlatformSettings,
   type VendorServiceChargeSummary,
   type VendorReport,
-} from "@shared/schema";
+} from "../shared/schema.js";
 import {
   createNeonAuthUser,
   updateNeonAuthUser,

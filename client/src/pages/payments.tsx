@@ -89,8 +89,8 @@ export default function Payments() {
     setSearchQuery(student.name);
   };
 
-  const getNewExpiryDate = (paymentDate: string, duration: number, currentExpiry: string) => {
-    const baseDate = new Date(currentExpiry) > new Date(paymentDate) ? new Date(currentExpiry) : new Date(paymentDate);
+  const getNewExpiryDate = (paymentDate: string, duration: number, currentExpiry?: string | null) => {
+    const baseDate = currentExpiry && new Date(currentExpiry) > new Date(paymentDate) ? new Date(currentExpiry) : new Date(paymentDate);
     const newDate = new Date(baseDate);
     newDate.setDate(newDate.getDate() + duration);
     return newDate;
@@ -281,7 +281,7 @@ export default function Payments() {
                 <div className="p-3 bg-muted rounded-md">
                   <p className="text-xs text-muted-foreground">Current Expiry Date</p>
                   <p className="font-bold text-lg">
-                    {new Date(selectedStudent.expiryDate).toLocaleDateString() === new Date("1970-01-01").toLocaleDateString() ? "Not Set" : new Date(selectedStudent.expiryDate).toLocaleDateString()}
+                    {!selectedStudent.expiryDate || new Date(selectedStudent.expiryDate).toLocaleDateString() === new Date("1970-01-01").toLocaleDateString() ? "Not Set" : new Date(selectedStudent.expiryDate).toLocaleDateString()}
                   </p>
                 </div>
 

@@ -32,10 +32,7 @@ import { insertStudentSchema, NAME_REGEX, PHONE_REGEX } from "@shared/schema";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 
-const formSchema = insertStudentSchema.omit({ expiryDate: true, registerNo: true }).extend({
-  name: z.string().min(1, "Name is required").regex(NAME_REGEX, "Name cannot contain special characters"),
-  phone: z.string().regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),
-});
+const formSchema = insertStudentSchema.omit({ registerNo: true });
 
 type FormValues = z.infer<typeof formSchema>;
 
