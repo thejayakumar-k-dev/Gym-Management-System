@@ -13,12 +13,14 @@
  * 3. FIREBASE_CLIENT_EMAIL and FIREBASE_PRIVATE_KEY
  */
 
-import admin from "firebase-admin";
+import { initializeApp, cert, getApps, applicationDefault, type App } from "firebase-admin/app";
+import { getAuth, type Auth, type DecodedIdToken } from "firebase-admin/auth";
 import fs from "fs";
 import path from "path";
 
 let adminInitialized = false;
-let adminAuth: admin.auth.Auth | null = null;
+let adminAuth: Auth | null = null;
+let adminApp: App | null = null;
 
 function initAdmin() {
   if (adminInitialized) return;
@@ -42,13 +44,15 @@ function initAdmin() {
       }
 
       if (serviceAccount) {
-        if (admin.apps.length === 0) {
-          admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
+        if (getApps().length === 0) {
+          adminApp = initializeApp({
+            credential: cert(serviceAccount),
             projectId: serviceAccount.project_id || projectId,
           });
+        } else {
+          adminApp = getApps()[0];
         }
-        adminAuth = admin.auth();
+        adminAuth = getAuth(adminApp);
         adminInitialized = true;
         console.log("[firebase-admin] Initialized via FIREBASE_SERVICE_ACCOUNT_KEY for project:", projectId);
         return;
@@ -58,13 +62,15 @@ function initAdmin() {
     // 2. Check GOOGLE_APPLICATION_CREDENTIALS file path
     const googleAppCreds = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     if (googleAppCreds && fs.existsSync(googleAppCreds)) {
-      if (admin.apps.length === 0) {
-        admin.initializeApp({
-          credential: admin.credential.applicationDefault(),
+      if (getApps().length === 0) {
+        adminApp = initializeApp({
+          credential: applicationDefault(),
           projectId,
         });
+      } else {
+        adminApp = getApps()[0];
       }
-      adminAuth = admin.auth();
+      adminAuth = getAuth(adminApp);
       adminInitialized = true;
       console.log("[firebase-admin] Initialized via GOOGLE_APPLICATION_CREDENTIALS");
       return;
@@ -75,12 +81,14 @@ function initAdmin() {
     const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
 
     if (projectId && clientEmail && privateKey) {
-      if (admin.apps.length === 0) {
-        admin.initializeApp({
-          credential: admin.credential.cert({ projectId, clientEmail, privateKey }),
+      if (getApps().length === 0) {
+        adminApp = initializeApp({
+          credential: cert({ projectId, clientEmail, privateKey }),
         });
+      } else {
+        adminApp = getApps()[0];
       }
-      adminAuth = admin.auth();
+      adminAuth = getAuth(adminApp);
       adminInitialized = true;
       console.log("[firebase-admin] Initialized via CLIENT_EMAIL & PRIVATE_KEY for project:", projectId);
       return;
@@ -173,7 +181,7 @@ export async function adminDeleteUser(uid: string): Promise<{ error?: string }> 
  */
 export async function verifyIdToken(
   idToken: string
-): Promise<admin.auth.DecodedIdToken | null> {
+): Promise<DecodedIdToken | null> {
   initAdmin();
   if (!adminAuth) return null;
   try {

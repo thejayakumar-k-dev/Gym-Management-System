@@ -11,6 +11,9 @@ server/dist/
 .env
 .env.*
 !.env.example
+*serviceAccount*.json
+serviceAccountKey.json
+*.pem
 
 # Local development
 .local/
