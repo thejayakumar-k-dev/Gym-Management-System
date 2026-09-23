@@ -121,11 +121,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/vendors", async (req, res) => {
     try {
-      if (isVendorAdminPhone(req.body)) {
-        return res.status(403).json({
-          error: "You are the admin — this contact number cannot be used for a vendor",
-        });
-      }
       const { password, ...body } = req.body;
       const validatedData = insertVendorSchema.parse(body);
       const vendor = await storage.createVendor(validatedData, password);
@@ -147,12 +142,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const vendor = await storage.getVendorById(id);
       if (!vendor) {
         return res.status(404).json({ error: "Vendor not found" });
-      }
-
-      if (isVendorAdminPhone(req.body)) {
-        return res.status(403).json({
-          error: "You are the admin — this contact number cannot be used for a vendor",
-        });
       }
 
       const { password, ...body } = req.body;
@@ -183,13 +172,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to backfill vendor auth users" });
     }
   });
-
-  const isVendorAdminPhone = (data: any): boolean => {
-    const adminPhone = process.env.ADMIN_PHONE;
-    if (!adminPhone) return false;
-    const digits = (v: unknown) => String(v ?? "").replace(/\D/g, "");
-    return !!data && digits(data.phone) === adminPhone;
-  };
 
   // Public status endpoint for the login screen: is this vendor's account blocked?
   app.get("/api/vendor-accounts/status/:phone", async (req, res) => {
