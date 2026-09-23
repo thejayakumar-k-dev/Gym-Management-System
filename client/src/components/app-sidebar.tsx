@@ -13,7 +13,7 @@ import {
 import {
   LayoutDashboard,
   Users,
-  DollarSign,
+  IndianRupee,
   TrendingUp,
   History,
   Calendar,
@@ -23,6 +23,7 @@ import {
   Sun,
   Edit,
   Settings,
+  CreditCard,
 } from "lucide-react";
 import { Dumbbell } from "lucide-react";
 import { useTheme } from "./theme-provider";
@@ -43,7 +44,12 @@ const menuItems = [
   {
     title: "Payments",
     url: "/payments",
-    icon: DollarSign,
+    icon: IndianRupee,
+  },
+  {
+    title: "Membership Plans",
+    url: "/membership-plans",
+    icon: CreditCard,
   },
   {
     title: "Income Dashboard",

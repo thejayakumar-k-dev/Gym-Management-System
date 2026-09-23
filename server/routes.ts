@@ -1,14 +1,53 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { log } from "./logger.js";
-import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema } from "../shared/schema.js";
+import { getDb, type DrizzleDB } from "./db.js";
+import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, insertMembershipPlanSchema } from "../shared/schema.js";
+import { addMonths } from "../shared/duration.js";
+
+/**
+ * Resolves which database a request should read/write from.
+ *
+ * - Admin impersonating a vendor: uses the `x-vendor-id` request header.
+ * - Vendor logged in: maps the Firebase UID to their vendor record.
+ * - Otherwise (admin panel, anonymous, no Neon project): central DB (null).
+ */
+async function resolveVendorDb(req: Request): Promise<DrizzleDB | undefined> {
+  let vendorId: number | null = null;
+
+  const headerVendorId = Number((req.headers["x-vendor-id"] as string) ?? "");
+  if (Number.isInteger(headerVendorId) && headerVendorId > 0) {
+    vendorId = headerVendorId;
+  } else if ((req as any).auth?.user?.id) {
+    const auth = (req as any).auth.user;
+    let vendor = await storage.getVendorByAuthUid(auth.id);
+    // Legacy vendors may not have authUid stored — fall back to their phone email.
+    if (!vendor && auth.email) {
+      const phone = auth.email.match(/^(\d{10})@gmail\.com$/)?.[1];
+      if (phone) vendor = await storage.getVendorByPhone(phone);
+    }
+    if (vendor) vendorId = vendor.id;
+  }
+
+  if (!vendorId) return undefined;
+
+  const project = await storage.getVendorNeonProjectByVendorId(vendorId);
+  if (!project?.databaseUrl) return undefined;
+
+  try {
+    return getDb(project.databaseUrl);
+  } catch (error) {
+    console.error("[routes] Failed to connect to vendor Neon project:", error);
+    return undefined;
+  }
+}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Dashboard stats
-  app.get("/api/dashboard/stats", async (_req, res) => {
+  app.get("/api/dashboard/stats", async (req, res) => {
     try {
-      const stats = await storage.getDashboardStats();
+      const stats = await storage.getDashboardStats(await resolveVendorDb(req));
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch dashboard stats" });
@@ -16,9 +55,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Students endpoints
-  app.get("/api/students", async (_req, res) => {
+  app.get("/api/students", async (req, res) => {
     try {
-      const students = await storage.getStudents();
+      const students = await storage.getStudents(await resolveVendorDb(req));
       res.json(students);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch students" });
@@ -28,7 +67,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/students/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const student = await storage.getStudentById(id);
+      const student = await storage.getStudentById(id, await resolveVendorDb(req));
       if (!student) {
         return res.status(404).json({ error: "Student not found" });
       }
@@ -41,16 +80,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/students", async (req, res) => {
     try {
       const validatedData = insertStudentSchema.omit({ registerNo: true }).parse(req.body);
+      const vdb = await resolveVendorDb(req);
 
       // Auto-generate sequential register number: 1, 2, 3, ...
-      const allStudents = await storage.getStudents();
+      const allStudents = await storage.getStudents(vdb);
       const maxNum = allStudents.reduce((max, s) => {
         const n = parseInt(s.registerNo, 10);
         return Number.isFinite(n) && n > max ? n : max;
       }, 0);
       const registerNo = String(maxNum + 1);
 
-      const student = await storage.createStudent({ ...validatedData, registerNo });
+      const student = await storage.createStudent({ ...validatedData, registerNo }, vdb);
       res.status(201).json(student);
     } catch (error: any) {
       if (error.name === "ZodError") {
@@ -63,14 +103,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/students/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const student = await storage.getStudentById(id);
+      const vdb = await resolveVendorDb(req);
+      const student = await storage.getStudentById(id, vdb);
       if (!student) {
         return res.status(404).json({ error: "Student not found" });
       }
 
       const updatedStudent = await storage.updateStudent(
         id,
-        insertStudentSchema.partial().parse(req.body)
+        insertStudentSchema.partial().parse(req.body),
+        vdb
       );
       res.json(updatedStudent);
     } catch (error: any) {
@@ -84,12 +126,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/students/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const student = await storage.getStudentById(id);
+      const vdb = await resolveVendorDb(req);
+      const student = await storage.getStudentById(id, vdb);
       if (!student) {
         return res.status(404).json({ error: "Student not found" });
       }
 
-      await storage.deleteStudent(id);
+      await storage.deleteStudent(id, vdb);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete student" });
@@ -303,14 +346,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/vendor-neon-projects", async (req, res) => {
     try {
-      const validatedData = insertVendorNeonProjectSchema.parse(req.body);
-      const project = await storage.createVendorNeonProject(validatedData);
+      const vendorId = Number(req.body?.vendorId);
+      if (!Number.isInteger(vendorId) || vendorId <= 0) {
+        return res.status(400).json({ error: "Select a valid vendor" });
+      }
+
+      const vendor = await storage.getVendorById(vendorId);
+      if (!vendor) {
+        return res.status(404).json({ error: "Vendor not found" });
+      }
+
+      const nameHint =
+        typeof req.body?.projectName === "string" &&
+        req.body.projectName.trim()
+          ? req.body.projectName.trim()
+          : undefined;
+
+      const project = await storage.createVendorNeonProject(vendorId, nameHint);
       res.status(201).json(project);
     } catch (error: any) {
-      if (error.name === "ZodError") {
-        return res.status(400).json({ error: "Invalid Neon project data", details: error.errors });
-      }
-      res.status(500).json({ error: "Failed to create vendor Neon project" });
+      console.error("[routes] Failed to provision Neon project:", error.message);
+      res.status(500).json({ error: error.message || "Failed to create vendor Neon project" });
     }
   });
 
@@ -450,10 +506,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Payments endpoints
-  app.get("/api/payments", async (_req, res) => {
+  // Membership plans — plan prices used to auto-calculate payment amounts.
+  const isUniqueViolation = (error: any) =>
+    error?.code === "23505" || error?.cause?.code === "23505";
+
+  app.get("/api/membership-plans", async (req, res) => {
     try {
-      const payments = await storage.getPayments();
+      const plans = await storage.getMembershipPlans(await resolveVendorDb(req));
+      res.json(plans);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to load membership plans" });
+    }
+  });
+
+  app.post("/api/membership-plans", async (req, res) => {
+    try {
+      const parsed = insertMembershipPlanSchema.parse(req.body);
+      const vdb = await resolveVendorDb(req);
+      const plan = await storage.createMembershipPlan({
+        name: parsed.name,
+        durationMonths: parsed.durationMonths,
+        price: parsed.price,
+      }, vdb);
+      res.status(201).json(plan);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res
+          .status(400)
+          .json({ error: "Invalid membership plan", details: error.errors });
+      }
+      if (isUniqueViolation(error)) {
+        return res
+          .status(400)
+          .json({ error: "A plan with this duration already exists" });
+      }
+      res.status(500).json({ error: "Failed to create membership plan" });
+    }
+  });
+
+  app.put("/api/membership-plans/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ error: "Invalid plan id" });
+      }
+      const parsed = insertMembershipPlanSchema.parse(req.body);
+      const vdb = await resolveVendorDb(req);
+      const plan = await storage.updateMembershipPlan(id, {
+        name: parsed.name,
+        durationMonths: parsed.durationMonths,
+        price: parsed.price,
+      }, vdb);
+      if (!plan) {
+        return res.status(404).json({ error: "Membership plan not found" });
+      }
+      res.json(plan);
+    } catch (error: any) {
+      if (error?.name === "ZodError") {
+        return res
+          .status(400)
+          .json({ error: "Invalid membership plan", details: error.errors });
+      }
+      if (isUniqueViolation(error)) {
+        return res
+          .status(400)
+          .json({ error: "A plan with this duration already exists" });
+      }
+      res.status(500).json({ error: "Failed to update membership plan" });
+    }
+  });
+
+  app.delete("/api/membership-plans/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (Number.isNaN(id)) {
+        return res.status(400).json({ error: "Invalid plan id" });
+      }
+      const vdb = await resolveVendorDb(req);
+      const deleted = await storage.deleteMembershipPlan(id, vdb);
+      if (!deleted) {
+        return res.status(404).json({ error: "Membership plan not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete membership plan" });
+    }
+  });
+
+  // Payments endpoints
+  app.get("/api/payments", async (req, res) => {
+    try {
+      const payments = await storage.getPayments(await resolveVendorDb(req));
       res.json(payments);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch payments" });
@@ -462,23 +605,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/payments", async (req, res) => {
     try {
-      const tokenNumber = `TKN-${Date.now()}`;
+      const clientToken =
+        typeof req.body?.tokenNumber === "string" &&
+        /^TKN-\d+$/.test(req.body.tokenNumber)
+          ? req.body.tokenNumber
+          : null;
+      const tokenNumber = clientToken || `TKN-${Date.now()}`;
       const validatedData = insertPaymentSchema.parse({
         ...req.body,
         tokenNumber,
       });
-      const payment = await storage.createPayment(validatedData);
-      
-      // Update student's expiry date based on payment duration
+      const vdb = await resolveVendorDb(req);
+      const payment = await storage.createPayment(validatedData, vdb);
+
+      // Update student's expiry date based on payment duration (in months)
       const today = new Date();
-      const expiryDate = new Date(today);
-      expiryDate.setDate(expiryDate.getDate() + validatedData.duration);
-      
+      const expiryDate = addMonths(today, validatedData.duration);
+
       // Update student with new expiry date
       await storage.updateStudent(validatedData.studentId, {
         expiryDate: expiryDate.toISOString().split("T")[0],
-      });
-      
+      }, vdb);
+
       res.status(201).json(payment);
     } catch (error: any) {
       if (error.name === "ZodError") {
@@ -491,12 +639,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/payments/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const payment = await storage.getPaymentById(id);
+      const vdb = await resolveVendorDb(req);
+      const payment = await storage.getPaymentById(id, vdb);
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      const updatedPayment = await storage.updatePayment(id, req.body);
+      const updatedPayment = await storage.updatePayment(id, req.body, vdb);
       res.json(updatedPayment);
     } catch (error) {
       res.status(500).json({ error: "Failed to update payment" });
@@ -506,12 +655,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/payments/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id);
-      const payment = await storage.getPaymentById(id);
+      const vdb = await resolveVendorDb(req);
+      const payment = await storage.getPaymentById(id, vdb);
       if (!payment) {
         return res.status(404).json({ error: "Payment not found" });
       }
 
-      await storage.deletePayment(id);
+      await storage.deletePayment(id, vdb);
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete payment" });
@@ -519,9 +669,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Income stats
-  app.get("/api/income/stats", async (_req, res) => {
+  app.get("/api/income/stats", async (req, res) => {
     try {
-      const stats = await storage.getIncomeStats();
+      const stats = await storage.getIncomeStats(await resolveVendorDb(req));
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch income stats" });
@@ -532,7 +682,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/attendance", async (req, res) => {
     try {
       const date = req.query.date as string || new Date().toISOString().split("T")[0];
-      const records = await storage.getAttendanceByDate(date);
+      const records = await storage.getAttendanceByDate(date, await resolveVendorDb(req));
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch attendance records" });
@@ -541,6 +691,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/attendance", async (req, res) => {
     try {
+      const vdb = await resolveVendorDb(req);
+
       // Accept registerNumber from attendance pad or registerNo from students dashboard
       const registerNumber = req.body.registerNumber || req.body.registerNo;
       
@@ -558,7 +710,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const registerNoString = String(registerNumber).trim();
 
       // Step 1: Check if student exists
-      const student = await storage.getStudentByRegisterNo(registerNoString);
+      const student = await storage.getStudentByRegisterNo(registerNoString, vdb);
       if (!student) {
         return res.status(404).json({ 
           type: "error",
@@ -601,7 +753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Step 4: Check if already marked today (only for active members)
       const today = new Date().toISOString().split("T")[0];
-      const existingRecord = await storage.getAttendanceByDate(today);
+      const existingRecord = await storage.getAttendanceByDate(today, vdb);
       const alreadyMarked = existingRecord.some((r) => r.registerNo === registerNoString);
 
       if (alreadyMarked) {
@@ -626,7 +778,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         registerNo: student.registerNo,
         studentName: student.name,
         timeIn,
-      });
+      }, vdb);
 
       // Return success response
       res.status(200).json({ 

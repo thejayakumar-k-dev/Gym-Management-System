@@ -19,7 +19,7 @@ export const students = pgTable("students", {
   registerNo: varchar("register_no", { length: 50 }).notNull().unique(),
   name: text("name").notNull(),
   phone: varchar("phone", { length: 20 }).notNull(),
-  address: text("address").notNull(),
+  address: text("address").notNull().default(""),
   joinDate: date("join_date").notNull(),
   expiryDate: date("expiry_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -41,8 +41,13 @@ export const insertStudentSchema = createInsertSchema(students)
       .regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),
     address: z
       .string()
-      .min(1, "Address is required")
-      .regex(ADDRESS_REGEX, "Address cannot contain special characters"),
+      .trim()
+      .refine(
+        (val) => !val || ADDRESS_REGEX.test(val),
+        "Address cannot contain special characters"
+      )
+      .optional()
+      .default(""),
   });
 
 export type InsertStudent = z.infer<typeof insertStudentSchema>;
@@ -272,6 +277,59 @@ export const insertPlatformSettingsSchema = createInsertSchema(platformSettings)
 export type InsertPlatformSettings = z.infer<typeof insertPlatformSettingsSchema>;
 export type PlatformSettings = typeof platformSettings.$inferSelect;
 
+// Membership Plans table — per-vendor plan pricing keyed by duration in months.
+// Drives the Membership Plans tab and auto-calculates payment amounts.
+export const membershipPlans = pgTable("membership_plans", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().default(""),
+  durationMonths: integer("duration_months").notNull().unique(), // months
+  price: integer("price").notNull().default(0), // rupees
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Plans seeded for gyms that haven't configured any yet.
+export const DEFAULT_MEMBERSHIP_PLANS = [
+  {
+    name: "1 Month",
+    durationMonths: 1,
+    price: 0,
+  },
+  {
+    name: "3 Month",
+    durationMonths: 3,
+    price: 0,
+  },
+  {
+    name: "1 Year",
+    durationMonths: 12,
+    price: 0,
+  },
+] as const;
+
+export const insertMembershipPlanSchema = createInsertSchema(membershipPlans)
+  .omit({
+    id: true,
+    updatedAt: true,
+  })
+  .extend({
+    name: z
+      .string()
+      .min(1, "Plan name is required")
+      .max(60, "Name is too long"),
+    durationMonths: z.coerce
+      .number()
+      .int("Duration must be whole months")
+      .min(1, "Duration must be at least 1 month")
+      .max(120, "Duration cannot exceed 120 months"),
+    price: z.coerce
+      .number()
+      .int()
+      .min(0, "Price cannot be negative"),
+  });
+
+export type InsertMembershipPlan = z.infer<typeof insertMembershipPlanSchema>;
+export type MembershipPlan = typeof membershipPlans.$inferSelect;
+
 // Computed service charge summary for a vendor (plan + live user count).
 export type VendorServiceChargeSummary = {
   vendorId: number;
@@ -307,7 +365,7 @@ export const payments = pgTable("payments", {
   studentId: integer("student_id").notNull(),
   registerNo: varchar("register_no", { length: 50 }).notNull(),
   studentName: text("student_name").notNull(),
-  duration: integer("duration").notNull(), // days
+  duration: integer("duration").notNull(), // months
   amount: integer("amount").notNull(), // in rupees
   paymentMethod: varchar("payment_method", { length: 20 }).notNull(), // 'cash' or 'online'
   createdAt: timestamp("created_at").defaultNow().notNull(),

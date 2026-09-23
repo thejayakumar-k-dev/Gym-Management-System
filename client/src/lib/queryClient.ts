@@ -9,13 +9,16 @@ async function throwIfResNotOk(res: Response) {
 }
 
 /**
- * Build auth headers — attaches the Firebase ID token as Bearer if a user is logged in.
+ * Build auth headers — attaches the Firebase ID token as Bearer if a user is logged in,
+ * plus the impersonated vendor id (admin viewing a vendor's panel) when present.
  */
-async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
+export async function authHeaders(extra: Record<string, string> = {}): Promise<Record<string, string>> {
   const token = await getIdToken();
-  return token
-    ? { Authorization: `Bearer ${token}`, ...extra }
-    : { ...extra };
+  const impersonatedVendorId = sessionStorage.getItem("admin_active_vendor_id");
+  const headers: Record<string, string> = { ...extra };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  if (impersonatedVendorId) headers["x-vendor-id"] = impersonatedVendorId;
+  return headers;
 }
 
 export async function apiRequest(

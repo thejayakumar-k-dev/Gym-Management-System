@@ -7,7 +7,7 @@
  */
 
 import { eq, desc, sql } from "drizzle-orm";
-import { db } from "./db.js";
+import { db, type DrizzleDB } from "./db.js";
 import {
   students,
   payments,
@@ -17,6 +17,8 @@ import {
   vendorNeonProjects,
   vendorServicePlans,
   platformSettings,
+  membershipPlans,
+  DEFAULT_MEMBERSHIP_PLANS,
   type Student,
   type InsertStudent,
   type Payment,
@@ -32,6 +34,7 @@ import {
   type VendorServicePlan,
   type InsertVendorServicePlan,
   type PlatformSettings,
+  type MembershipPlan,
   type VendorServiceChargeSummary,
   type VendorReport,
 } from "../shared/schema.js";
@@ -40,30 +43,62 @@ import {
   updateNeonAuthUser,
 } from "./auth.js";
 import { createNeonProject } from "./neon-api.js";
-import { encrypt } from "./crypto.js";
+import { encrypt, decrypt, isEncrypted } from "./crypto.js";
 import { runMigration } from "./migrate.js";
+
+// Credentials are stored encrypted. Returns the decrypted plaintext for a
+// stored value (safe for both legacy plaintext rows and new encrypted rows).
+function plaintextOf(value: string): string {
+  return isEncrypted(value) ? decrypt(value) : value;
+}
+
+// Keeps credential storage consistent: encrypts plaintext, leaves already
+// encrypted values untouched.
+function encryptedOf(value: string): string {
+  return isEncrypted(value) ? value : encrypt(value);
+}
 
 // ── IStorage interface (unchanged) ────────────────────────────────────
 
+// Tables created lazily for databases that predate the membership_plans
+// schema (CREATE TABLE IF NOT EXISTS is idempotent, so this is safe).
+const ensuredTables = new WeakSet<object>();
+
+async function ensureMembershipPlansTable(dbc: DrizzleDB): Promise<void> {
+  if (ensuredTables.has(dbc as object)) return;
+  await dbc.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS membership_plans (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT '',
+      duration_months INTEGER NOT NULL UNIQUE,
+      price INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `  ));
+  ensuredTables.add(dbc as object);
+}
+
 export interface IStorage {
   // Students
-  getStudents(): Promise<Student[]>;
-  getStudentById(id: number): Promise<Student | undefined>;
-  getStudentByRegisterNo(registerNo: string): Promise<Student | undefined>;
-  createStudent(student: InsertStudent & { expiryDate?: string | null }): Promise<Student>;
-  updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }): Promise<Student>;
-  deleteStudent(id: number): Promise<void>;
+  getStudents(db?: DrizzleDB): Promise<Student[]>;
+  getStudentById(id: number, db?: DrizzleDB): Promise<Student | undefined>;
+  getStudentByRegisterNo(registerNo: string, db?: DrizzleDB): Promise<Student | undefined>;
+  createStudent(student: InsertStudent & { expiryDate?: string | null }, db?: DrizzleDB): Promise<Student>;
+  updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }, db?: DrizzleDB): Promise<Student>;
+  deleteStudent(id: number, db?: DrizzleDB): Promise<void>;
 
   // Payments
-  getPayments(): Promise<Payment[]>;
-  getPaymentById(id: number): Promise<Payment | undefined>;
-  createPayment(payment: InsertPayment): Promise<Payment>;
-  updatePayment(id: number, payment: Partial<Omit<InsertPayment, 'studentId' | 'registerNo' | 'studentName'>>): Promise<Payment>;
-  deletePayment(id: number): Promise<void>;
+  getPayments(db?: DrizzleDB): Promise<Payment[]>;
+  getPaymentById(id: number, db?: DrizzleDB): Promise<Payment | undefined>;
+  createPayment(payment: InsertPayment, db?: DrizzleDB): Promise<Payment>;
+  updatePayment(id: number, payment: Partial<Omit<InsertPayment, 'studentId' | 'registerNo' | 'studentName'>>, db?: DrizzleDB): Promise<Payment>;
+  deletePayment(id: number, db?: DrizzleDB): Promise<void>;
 
   // Vendors
   getVendors(): Promise<Vendor[]>;
   getVendorById(id: number): Promise<Vendor | undefined>;
+  getVendorByPhone(phone: string): Promise<Vendor | undefined>;
+  getVendorByAuthUid(uid: string): Promise<Vendor | undefined>;
   createVendor(vendor: InsertVendor, password?: string): Promise<Vendor>;
   updateVendor(id: number, vendor: Partial<InsertVendor>, options?: { password?: string; sessionCookie?: string }): Promise<Vendor>;
   backfillVendorAuthUsers(): Promise<{ created: number; linked: number; failed: number }>;
@@ -80,7 +115,8 @@ export interface IStorage {
   // Vendor Neon Projects
   getVendorNeonProjects(): Promise<VendorNeonProject[]>;
   getVendorNeonProjectById(id: number): Promise<VendorNeonProject | undefined>;
-  createVendorNeonProject(project: InsertVendorNeonProject): Promise<VendorNeonProject>;
+  getVendorNeonProjectByVendorId(vendorId: number): Promise<VendorNeonProject | undefined>;
+  createVendorNeonProject(vendorId: number, projectName?: string): Promise<VendorNeonProject>;
   updateVendorNeonProject(id: number, project: Partial<InsertVendorNeonProject>): Promise<VendorNeonProject>;
   deleteVendorNeonProject(id: number): Promise<void>;
   getAdminNeonConfig(): Promise<{
@@ -99,6 +135,13 @@ export interface IStorage {
   // Platform Settings
   getPlatformSettings(): Promise<PlatformSettings>;
   updatePlatformSettings(settings: { platformFee: number }): Promise<PlatformSettings>;
+
+  // Membership Plans
+  getMembershipPlans(db?: DrizzleDB): Promise<MembershipPlan[]>;
+  createMembershipPlan(plan: { name: string; durationMonths: number; price: number }, db?: DrizzleDB): Promise<MembershipPlan>;
+  updateMembershipPlan(id: number, plan: Partial<{ name: string; durationMonths: number; price: number }>, db?: DrizzleDB): Promise<MembershipPlan | undefined>;
+  deleteMembershipPlan(id: number, db?: DrizzleDB): Promise<boolean>;
+  upsertMembershipPlans(plans: { durationMonths: number; price: number }[], db?: DrizzleDB): Promise<MembershipPlan[]>;
 
   // Reports
   getVendorReport(vendorId: number): Promise<VendorReport | null>;
@@ -141,62 +184,62 @@ function maskSecret(value: string | null | undefined): string | null {
 export class DrizzleStorage implements IStorage {
   // ── Students ─────────────────────────────────────────────────────
 
-  async getStudents(): Promise<Student[]> {
-    return db.select().from(students).orderBy(desc(students.id));
+  async getStudents(dbc: DrizzleDB = db): Promise<Student[]> {
+    return dbc.select().from(students).orderBy(desc(students.id));
   }
 
-  async getStudentById(id: number): Promise<Student | undefined> {
-    const rows = await db.select().from(students).where(eq(students.id, id)).limit(1);
+  async getStudentById(id: number, dbc: DrizzleDB = db): Promise<Student | undefined> {
+    const rows = await dbc.select().from(students).where(eq(students.id, id)).limit(1);
     return rows[0];
   }
 
-  async getStudentByRegisterNo(registerNo: string): Promise<Student | undefined> {
-    const rows = await db.select().from(students).where(eq(students.registerNo, registerNo)).limit(1);
+  async getStudentByRegisterNo(registerNo: string, dbc: DrizzleDB = db): Promise<Student | undefined> {
+    const rows = await dbc.select().from(students).where(eq(students.registerNo, registerNo)).limit(1);
     return rows[0];
   }
 
-  async createStudent(student: InsertStudent & { expiryDate?: string | null }): Promise<Student> {
-    const rows = await db.insert(students).values({
+  async createStudent(student: InsertStudent & { expiryDate?: string | null }, dbc: DrizzleDB = db): Promise<Student> {
+    const rows = await dbc.insert(students).values({
       registerNo: student.registerNo,
       name: student.name,
       phone: student.phone,
-      address: student.address,
+      address: student.address || "",
       joinDate: student.joinDate,
       expiryDate: student.expiryDate || null,
     }).returning();
     return rows[0];
   }
 
-  async updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }): Promise<Student> {
+  async updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }, dbc: DrizzleDB = db): Promise<Student> {
     const updateData: Record<string, unknown> = {};
     if (student.registerNo !== undefined) updateData.registerNo = student.registerNo;
     if (student.name !== undefined) updateData.name = student.name;
     if (student.phone !== undefined) updateData.phone = student.phone;
-    if (student.address !== undefined) updateData.address = student.address;
+    if (student.address !== undefined) updateData.address = student.address || "";
     if (student.joinDate !== undefined) updateData.joinDate = student.joinDate;
     if (student.expiryDate !== undefined) updateData.expiryDate = student.expiryDate;
 
-    const rows = await db.update(students).set(updateData).where(eq(students.id, id)).returning();
+    const rows = await dbc.update(students).set(updateData).where(eq(students.id, id)).returning();
     return rows[0];
   }
 
-  async deleteStudent(id: number): Promise<void> {
-    await db.delete(students).where(eq(students.id, id));
+  async deleteStudent(id: number, dbc: DrizzleDB = db): Promise<void> {
+    await dbc.delete(students).where(eq(students.id, id));
   }
 
   // ── Payments ─────────────────────────────────────────────────────
 
-  async getPayments(): Promise<Payment[]> {
-    return db.select().from(payments).orderBy(desc(payments.id));
+  async getPayments(dbc: DrizzleDB = db): Promise<Payment[]> {
+    return dbc.select().from(payments).orderBy(desc(payments.id));
   }
 
-  async getPaymentById(id: number): Promise<Payment | undefined> {
-    const rows = await db.select().from(payments).where(eq(payments.id, id)).limit(1);
+  async getPaymentById(id: number, dbc: DrizzleDB = db): Promise<Payment | undefined> {
+    const rows = await dbc.select().from(payments).where(eq(payments.id, id)).limit(1);
     return rows[0];
   }
 
-  async createPayment(payment: InsertPayment): Promise<Payment> {
-    const rows = await db.insert(payments).values({
+  async createPayment(payment: InsertPayment, dbc: DrizzleDB = db): Promise<Payment> {
+    const rows = await dbc.insert(payments).values({
       tokenNumber: payment.tokenNumber,
       date: payment.date,
       studentId: payment.studentId,
@@ -209,7 +252,7 @@ export class DrizzleStorage implements IStorage {
     return rows[0];
   }
 
-  async updatePayment(id: number, payment: Partial<Omit<InsertPayment, 'studentId' | 'registerNo' | 'studentName'>>): Promise<Payment> {
+  async updatePayment(id: number, payment: Partial<Omit<InsertPayment, 'studentId' | 'registerNo' | 'studentName'>>, dbc: DrizzleDB = db): Promise<Payment> {
     const updateData: Record<string, unknown> = {};
     if (payment.tokenNumber !== undefined) updateData.tokenNumber = payment.tokenNumber;
     if (payment.date !== undefined) updateData.date = payment.date;
@@ -217,12 +260,12 @@ export class DrizzleStorage implements IStorage {
     if (payment.amount !== undefined) updateData.amount = payment.amount;
     if (payment.paymentMethod !== undefined) updateData.paymentMethod = payment.paymentMethod;
 
-    const rows = await db.update(payments).set(updateData).where(eq(payments.id, id)).returning();
+    const rows = await dbc.update(payments).set(updateData).where(eq(payments.id, id)).returning();
     return rows[0];
   }
 
-  async deletePayment(id: number): Promise<void> {
-    await db.delete(payments).where(eq(payments.id, id));
+  async deletePayment(id: number, dbc: DrizzleDB = db): Promise<void> {
+    await dbc.delete(payments).where(eq(payments.id, id));
   }
 
   // ── Vendors ──────────────────────────────────────────────────────
@@ -233,6 +276,16 @@ export class DrizzleStorage implements IStorage {
 
   async getVendorById(id: number): Promise<Vendor | undefined> {
     const rows = await db.select().from(vendors).where(eq(vendors.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async getVendorByPhone(phone: string): Promise<Vendor | undefined> {
+    const rows = await db.select().from(vendors).where(eq(vendors.phone, phone)).limit(1);
+    return rows[0];
+  }
+
+  async getVendorByAuthUid(uid: string): Promise<Vendor | undefined> {
+    const rows = await db.select().from(vendors).where(eq(vendors.authUid, uid)).limit(1);
     return rows[0];
   }
 
@@ -274,42 +327,50 @@ export class DrizzleStorage implements IStorage {
 
     // 3. Auto-provision Neon project for this gym
     try {
-      // Prioritize the vendor's Business/Gym Name for the Neon project name
-      const rawName = vendor.businessName?.trim() || `Gym-${vendor.firstName}`;
-      const projectName = rawName
-        .replace(/[^a-zA-Z0-9-]/g, "-")
-        .replace(/-+/g, "-")
-        .replace(/^-|-$/g, "")
-        .slice(0, 60) || `Gym-${newVendor.id}`;
-      const project = await createNeonProject(projectName);
-
-      // Get connection string from the new project
-      const connUri = project.connection_uris?.[0]?.pooler_connection_uri;
-      if (connUri) {
-        // 4. Run migration on the new project
-        const migrationResult = await runMigration(connUri);
-        if (!migrationResult.success) {
-          console.error("Migration failed for new project:", migrationResult.error);
-        }
-
-        // 5. Encrypt and store credentials
-        const encryptedProject = await db.insert(vendorNeonProjects).values({
-          vendorId: newVendor.id,
-          authUrl: encrypt(project.connection_uris?.[0]?.host || ""),
-          apiKey: encrypt(project.connection_uris?.[0]?.api_password || ""),
-          databaseUrl: encrypt(connUri),
-          authSecret: encrypt(project.connection_uris?.[0]?.password || ""),
-          port: 5000,
-        }).returning();
-
-        console.log(`[storage] Auto-provisioned Neon project for vendor #${newVendor.id}: ${projectName}`);
-      }
+      await this.provisionNeonProject(newVendor.id, vendor.businessName);
     } catch (error: any) {
       console.error("[storage] Neon project auto-provisioning failed:", error.message);
       // Don't fail vendor creation if provisioning fails
     }
 
     return { ...newVendor, authUid };
+  }
+
+  // Creates a real Neon project for a vendor, runs migrations, encrypts and
+  // stores the connection credentials. Throws if provisioning fails.
+  private async provisionNeonProject(
+    vendorId: number,
+    nameHint?: string
+  ): Promise<VendorNeonProject> {
+    const rawName = nameHint?.trim() || `Gym-${vendorId}`;
+    const projectName = rawName
+      .replace(/[^a-zA-Z0-9-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 60) || `Gym-${vendorId}`;
+
+    const project = await createNeonProject(projectName);
+    const connUri = project.connection_uris?.[0]?.pooler_connection_uri;
+    if (!connUri) {
+      throw new Error(`No connection URI returned for project "${projectName}"`);
+    }
+
+    const migrationResult = await runMigration(connUri);
+    if (!migrationResult.success) {
+      console.error("Migration failed for new project:", migrationResult.error);
+    }
+
+    const rows = await db.insert(vendorNeonProjects).values({
+      vendorId,
+      authUrl: encrypt(project.connection_uris?.[0]?.host || ""),
+      apiKey: encrypt(project.connection_uris?.[0]?.api_password || ""),
+      databaseUrl: encrypt(connUri),
+      authSecret: encrypt(project.connection_uris?.[0]?.password || ""),
+      port: 5000,
+    }).returning();
+
+    console.log(`[storage] Provisioned Neon project for vendor #${vendorId}: ${projectName}`);
+    return rows[0];
   }
 
   async updateVendor(id: number, vendor: Partial<InsertVendor>, options?: { password?: string }): Promise<Vendor> {
@@ -490,33 +551,53 @@ export class DrizzleStorage implements IStorage {
   // ── Vendor Neon Projects ─────────────────────────────────────────
 
   async getVendorNeonProjects(): Promise<VendorNeonProject[]> {
-    return db.select().from(vendorNeonProjects).orderBy(desc(vendorNeonProjects.id));
+    const rows = await db.select().from(vendorNeonProjects).orderBy(desc(vendorNeonProjects.id));
+    return rows.map((row) => ({
+      ...row,
+      authUrl: plaintextOf(row.authUrl),
+      apiKey: plaintextOf(row.apiKey),
+      databaseUrl: plaintextOf(row.databaseUrl),
+      authSecret: plaintextOf(row.authSecret),
+    }));
   }
 
   async getVendorNeonProjectById(id: number): Promise<VendorNeonProject | undefined> {
     const rows = await db.select().from(vendorNeonProjects).where(eq(vendorNeonProjects.id, id)).limit(1);
-    return rows[0];
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      ...row,
+      authUrl: plaintextOf(row.authUrl),
+      apiKey: plaintextOf(row.apiKey),
+      databaseUrl: plaintextOf(row.databaseUrl),
+      authSecret: plaintextOf(row.authSecret),
+    };
   }
 
-  async createVendorNeonProject(project: InsertVendorNeonProject): Promise<VendorNeonProject> {
-    const rows = await db.insert(vendorNeonProjects).values({
-      vendorId: project.vendorId,
-      authUrl: project.authUrl,
-      apiKey: project.apiKey,
-      databaseUrl: project.databaseUrl,
-      authSecret: project.authSecret,
-      port: project.port ?? 5000,
-    }).returning();
-    return rows[0];
+  async getVendorNeonProjectByVendorId(vendorId: number): Promise<VendorNeonProject | undefined> {
+    const rows = await db.select().from(vendorNeonProjects).where(eq(vendorNeonProjects.vendorId, vendorId)).limit(1);
+    const row = rows[0];
+    if (!row) return undefined;
+    return {
+      ...row,
+      authUrl: plaintextOf(row.authUrl),
+      apiKey: plaintextOf(row.apiKey),
+      databaseUrl: plaintextOf(row.databaseUrl),
+      authSecret: plaintextOf(row.authSecret),
+    };
+  }
+
+  async createVendorNeonProject(vendorId: number, projectName?: string): Promise<VendorNeonProject> {
+    return this.provisionNeonProject(vendorId, projectName);
   }
 
   async updateVendorNeonProject(id: number, project: Partial<InsertVendorNeonProject>): Promise<VendorNeonProject> {
     const updateData: Record<string, unknown> = {};
     if (project.vendorId !== undefined) updateData.vendorId = project.vendorId;
-    if (project.authUrl !== undefined) updateData.authUrl = project.authUrl;
-    if (project.apiKey !== undefined) updateData.apiKey = project.apiKey;
-    if (project.databaseUrl !== undefined) updateData.databaseUrl = project.databaseUrl;
-    if (project.authSecret !== undefined) updateData.authSecret = project.authSecret;
+    if (project.authUrl !== undefined) updateData.authUrl = encryptedOf(project.authUrl);
+    if (project.apiKey !== undefined) updateData.apiKey = encryptedOf(project.apiKey);
+    if (project.databaseUrl !== undefined) updateData.databaseUrl = encryptedOf(project.databaseUrl);
+    if (project.authSecret !== undefined) updateData.authSecret = encryptedOf(project.authSecret);
     if (project.port !== undefined) updateData.port = project.port;
 
     const rows = await db.update(vendorNeonProjects).set(updateData).where(eq(vendorNeonProjects.id, id)).returning();
@@ -594,7 +675,7 @@ export class DrizzleStorage implements IStorage {
       try {
         // Query the vendor's own database for user count
         const { getDb } = await import("./db.js");
-        const vendorDb = getDb(keyRows[0].databaseUrl);
+        const vendorDb = getDb(plaintextOf(keyRows[0].databaseUrl));
         const countResult = await vendorDb.select({ count: sql<number>`count(*)::int` }).from(students);
         userCount = countResult[0]?.count ?? 0;
       } catch (error) {
@@ -665,6 +746,82 @@ export class DrizzleStorage implements IStorage {
     return rows[0];
   }
 
+  // ── Membership Plans ────────────────────────────────────────────
+
+  async getMembershipPlans(dbc: DrizzleDB = db): Promise<MembershipPlan[]> {
+    await ensureMembershipPlansTable(dbc);
+    let rows = await dbc.select().from(membershipPlans).orderBy(membershipPlans.durationMonths);
+
+    // Seed the standard 1 Month / 3 Month / 1 Year plans on first visit.
+    if (rows.length === 0) {
+      for (const plan of DEFAULT_MEMBERSHIP_PLANS) {
+        await dbc.insert(membershipPlans).values({ ...plan }).onConflictDoNothing();
+      }
+      rows = await dbc.select().from(membershipPlans).orderBy(membershipPlans.durationMonths);
+    }
+
+    return rows;
+  }
+
+  async createMembershipPlan(
+    plan: { name: string; durationMonths: number; price: number },
+    dbc: DrizzleDB = db,
+  ): Promise<MembershipPlan> {
+    await ensureMembershipPlansTable(dbc);
+    const rows = await dbc.insert(membershipPlans).values({
+      name: plan.name,
+      durationMonths: plan.durationMonths,
+      price: plan.price,
+    }).returning();
+    return rows[0];
+  }
+
+  async updateMembershipPlan(
+    id: number,
+    plan: Partial<{ name: string; durationMonths: number; price: number }>,
+    dbc: DrizzleDB = db,
+  ): Promise<MembershipPlan | undefined> {
+    await ensureMembershipPlansTable(dbc);
+    const rows = await dbc
+      .update(membershipPlans)
+      .set({ ...plan, updatedAt: new Date() })
+      .where(eq(membershipPlans.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async deleteMembershipPlan(id: number, dbc: DrizzleDB = db): Promise<boolean> {
+    await ensureMembershipPlansTable(dbc);
+    const rows = await dbc
+      .delete(membershipPlans)
+      .where(eq(membershipPlans.id, id))
+      .returning({ id: membershipPlans.id });
+    return rows.length > 0;
+  }
+
+  async upsertMembershipPlans(
+    plans: { durationMonths: number; price: number }[],
+    dbc: DrizzleDB = db,
+  ): Promise<MembershipPlan[]> {
+    await ensureMembershipPlansTable(dbc);
+    for (const plan of plans) {
+      await dbc
+        .insert(membershipPlans)
+        .values({
+          durationMonths: plan.durationMonths,
+          price: plan.price,
+        })
+        .onConflictDoUpdate({
+          target: membershipPlans.durationMonths,
+          set: {
+            price: plan.price,
+            updatedAt: new Date(),
+          },
+        });
+    }
+    return this.getMembershipPlans(dbc);
+  }
+
   // ── Reports ──────────────────────────────────────────────────────
 
   async getVendorReport(vendorId: number): Promise<VendorReport | null> {
@@ -677,7 +834,7 @@ export class DrizzleStorage implements IStorage {
 
     try {
       const { getDb } = await import("./db.js");
-      const vendorDb = getDb(keyRow.databaseUrl);
+      const vendorDb = getDb(plaintextOf(keyRow.databaseUrl));
 
       const [allStudents, allPayments, allAttendance] = await Promise.all([
         vendorDb.select().from(students),
@@ -746,18 +903,18 @@ export class DrizzleStorage implements IStorage {
 
   // ── Attendance ───────────────────────────────────────────────────
 
-  async getAttendanceByDate(date: string): Promise<Attendance[]> {
-    return db.select().from(attendance).where(eq(attendance.date, date));
+  async getAttendanceByDate(date: string, dbc: DrizzleDB = db): Promise<Attendance[]> {
+    return dbc.select().from(attendance).where(eq(attendance.date, date));
   }
 
-  async getTodayAttendanceCount(): Promise<number> {
+  async getTodayAttendanceCount(dbc: DrizzleDB = db): Promise<number> {
     const today = new Date().toISOString().split("T")[0];
-    const rows = await db.select({ count: sql<number>`count(*)::int` }).from(attendance).where(eq(attendance.date, today));
+    const rows = await dbc.select({ count: sql<number>`count(*)::int` }).from(attendance).where(eq(attendance.date, today));
     return rows[0]?.count ?? 0;
   }
 
-  async createAttendance(att: InsertAttendance): Promise<Attendance> {
-    const rows = await db.insert(attendance).values({
+  async createAttendance(att: InsertAttendance, dbc: DrizzleDB = db): Promise<Attendance> {
+    const rows = await dbc.insert(attendance).values({
       date: att.date,
       registerNo: att.registerNo,
       studentName: att.studentName,
@@ -768,10 +925,10 @@ export class DrizzleStorage implements IStorage {
 
   // ── Dashboard stats ──────────────────────────────────────────────
 
-  async getDashboardStats() {
+  async getDashboardStats(dbc: DrizzleDB = db) {
     const [allStudents, allAttendance] = await Promise.all([
-      db.select().from(students),
-      db.select().from(attendance),
+      dbc.select().from(students),
+      dbc.select().from(attendance),
     ]);
 
     const today = new Date().toISOString().split("T")[0];
@@ -793,8 +950,8 @@ export class DrizzleStorage implements IStorage {
 
   // ── Income stats ─────────────────────────────────────────────────
 
-  async getIncomeStats() {
-    const allPayments = await db.select().from(payments);
+  async getIncomeStats(dbc: DrizzleDB = db) {
+    const allPayments = await dbc.select().from(payments);
 
     const now = new Date();
     const currentYear = now.getFullYear();

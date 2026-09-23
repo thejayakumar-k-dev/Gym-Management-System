@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Search, History, Banknote, CreditCard } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Payment } from "@shared/schema";
+import { formatDuration } from "@shared/duration";
 
 export default function PaymentHistory() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -145,7 +146,7 @@ export default function PaymentHistory() {
                       <TableCell>{new Date(payment.date).toLocaleDateString()}</TableCell>
                       <TableCell>{payment.registerNo}</TableCell>
                       <TableCell>{payment.studentName}</TableCell>
-                      <TableCell>{payment.duration} days</TableCell>
+                      <TableCell>{formatDuration(payment.duration)}</TableCell>
                       <TableCell>
                         <div className={`flex items-center gap-2 w-fit px-3 py-1 rounded-md ${
                           payment.paymentMethod === "cash" 

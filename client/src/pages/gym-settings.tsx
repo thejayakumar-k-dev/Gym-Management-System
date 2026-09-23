@@ -8,14 +8,14 @@ import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, X, Upload } from "lucide-react";
 
 const ICON_STYLES = [
-  { name: "Red", bg: "bg-red-500", icon: "🏋️", color: "#ef4444" },
-  { name: "Orange", bg: "bg-orange-500", icon: "🔥", color: "#f97316" },
-  { name: "Blue", bg: "bg-blue-500", icon: "⚡", color: "#3b82f6" },
-  { name: "Green", bg: "bg-green-500", icon: "📈", color: "#22c55e" },
-  { name: "Yellow", bg: "bg-yellow-500", icon: "⭐", color: "#eab308" },
-  { name: "Purple", bg: "bg-purple-500", icon: "👑", color: "#a855f7" },
-  { name: "Pink", bg: "bg-pink-500", icon: "💪", color: "#ec4899" },
-  { name: "Cyan", bg: "bg-cyan-500", icon: "🎯", color: "#06b6d4" },
+  { name: "Weight Lifter", bg: "bg-red-400", icon: "🏋️", color: "#ef4444" },
+  { name: "Biceps", bg: "bg-orange-400", icon: "💪", color: "#f97316" },
+  { name: "Boxing", bg: "bg-amber-400", icon: "🥊", color: "#eab308" },
+  { name: "Running", bg: "bg-green-400", icon: "🏃", color: "#22c55e" },
+  { name: "Swimming", bg: "bg-blue-400", icon: "🏊", color: "#3b82f6" },
+  { name: "Yoga", bg: "bg-purple-400", icon: "🧘", color: "#a855f7" },
+  { name: "Gymnastics", bg: "bg-pink-400", icon: "🤸", color: "#ec4899" },
+  { name: "Cycling", bg: "bg-cyan-400", icon: "🚴", color: "#06b6d4" },
 ];
 
 export default function GymSettings() {

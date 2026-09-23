@@ -16,6 +16,7 @@ import type { Vendor } from "@shared/schema";
 import Dashboard from "@/pages/dashboard";
 import Students from "@/pages/students";
 import Payments from "@/pages/payments";
+import MembershipPlans from "@/pages/membership-plans";
 import ModifyPayments from "@/pages/modify-payments";
 import IncomeDashboard from "@/pages/income-dashboard";
 import PaymentHistory from "@/pages/payment-history";
@@ -33,6 +34,7 @@ function Router() {
       <Route path="/" component={Dashboard} />
       <Route path="/students" component={Students} />
       <Route path="/payments" component={Payments} />
+      <Route path="/membership-plans" component={MembershipPlans} />
       <Route path="/modify-payments" component={ModifyPayments} />
       <Route path="/income-dashboard" component={IncomeDashboard} />
       <Route path="/payment-history" component={PaymentHistory} />

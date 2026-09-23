@@ -30,6 +30,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { formatDuration } from "@shared/duration";
+import { DurationPicker } from "@/components/duration-picker";
 import {
   Select,
   SelectContent,
@@ -40,7 +42,7 @@ import {
 
 const editPaymentSchema = z.object({
   date: z.string().min(1, "Date is required"),
-  duration: z.number().min(1, "Duration must be at least 1 day"),
+  duration: z.number().min(1, "Duration must be at least 1 month"),
   amount: z.number().min(1, "Amount must be greater than 0"),
   paymentMethod: z.enum(["cash", "online"]),
 });
@@ -61,7 +63,7 @@ export default function ModifyPayments() {
     resolver: zodResolver(editPaymentSchema),
     defaultValues: {
       date: new Date().toISOString().split("T")[0],
-      duration: 0,
+      duration: 1,
       amount: 0,
       paymentMethod: "cash",
     },
@@ -155,7 +157,7 @@ export default function ModifyPayments() {
                       <TableCell>{new Date(payment.date).toLocaleDateString()}</TableCell>
                       <TableCell>{payment.studentName}</TableCell>
                       <TableCell>{payment.registerNo}</TableCell>
-                      <TableCell>{payment.duration} days</TableCell>
+                      <TableCell>{formatDuration(payment.duration)}</TableCell>
                       <TableCell>
                         <div className={`flex items-center gap-2 w-fit px-3 py-1 rounded-md ${
                           payment.paymentMethod === "cash" 
@@ -233,24 +235,12 @@ export default function ModifyPayments() {
                     <FormMessage />
                   </FormItem>
                 )}
-              />
-
-              <FormField
+              /><FormField
                 control={form.control}
                 name="duration"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Membership Duration (Days) *</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="number"
-                        placeholder="Enter number of days"
-                        value={field.value === 0 ? "" : field.value}
-                        onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : 0)}
-                        data-testid="input-duration"
-                      />
-                    </FormControl>
-                    <FormMessage />
+                    <DurationPicker value={field.value} onChange={field.onChange} />
                   </FormItem>
                 )}
               />

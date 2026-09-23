@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
+import { authHeaders } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Delete, CheckCircle, AlertCircle, Maximize, Minimize } from "lucide-react";
@@ -85,7 +86,7 @@ export default function AttendancePad() {
 
       const response = await fetch("/api/attendance", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ registerNumber: trimmedRegNo }),
       });
       const data = await response.json();

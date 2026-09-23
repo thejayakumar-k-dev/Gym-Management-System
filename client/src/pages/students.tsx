@@ -177,7 +177,7 @@ export default function Students() {
       form.reset({
         name: student.name,
         phone: student.phone,
-        address: student.address,
+        address: student.address || "",
         joinDate: student.joinDate,
       });
     } else {
@@ -270,7 +270,7 @@ export default function Students() {
                       <TableCell className="font-medium">{student.registerNo}</TableCell>
                       <TableCell>{student.name}</TableCell>
                       <TableCell>{student.phone}</TableCell>
-                      <TableCell>{student.address}</TableCell>
+                      <TableCell>{student.address || "-"}</TableCell>
                       <TableCell>{new Date(student.joinDate).toLocaleDateString()}</TableCell>
                       <TableCell>{student.expiryDate ? new Date(student.expiryDate).toLocaleDateString() : "-"}</TableCell>
                       <TableCell className={getStatus(student.expiryDate) === "Active" ? "text-green-600 dark:text-green-400 font-medium" : getStatus(student.expiryDate) === "Pay Required" ? "text-orange-600 dark:text-orange-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>

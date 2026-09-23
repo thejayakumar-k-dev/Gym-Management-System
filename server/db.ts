@@ -8,6 +8,8 @@ import * as schema from "../shared/schema.js";
 
 const connections = new Map<string, ReturnType<typeof drizzleNeon<typeof schema>>>();
 
+export type DrizzleDB = ReturnType<typeof drizzleNeon<typeof schema>>;
+
 /**
  * Get (or create) a Drizzle ORM instance for a Neon project.
  * Falls back to DATABASE_URL or NEON_DATABASE_URL when no

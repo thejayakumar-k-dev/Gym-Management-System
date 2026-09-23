@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, CreditCard, TrendingUp, Calendar, DollarSign } from "lucide-react";
+import { Wallet, CreditCard, TrendingUp, Calendar, IndianRupee } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface IncomeStats {
@@ -51,7 +51,7 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-green-900 dark:text-green-100" data-testid="text-cash-in-hand">
-                ₹ {stats?.cashInHand ?? 0}
+                ₹ {(stats?.cashInHand ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -72,7 +72,7 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-blue-900 dark:text-blue-100" data-testid="text-online-payments">
-                ₹ {stats?.onlinePayments ?? 0}
+                ₹ {(stats?.onlinePayments ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -95,7 +95,7 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-orange-900 dark:text-orange-100" data-testid="text-this-month-income">
-                ₹ {stats?.thisMonthIncome ?? 0}
+                ₹ {(stats?.thisMonthIncome ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -116,7 +116,7 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-blue-900 dark:text-blue-100" data-testid="text-this-year-income">
-                ₹ {stats?.thisYearIncome ?? 0}
+                ₹ {(stats?.thisYearIncome ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -126,7 +126,7 @@ export default function IncomeDashboard() {
           <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-2">
             <div>
               <CardTitle className="text-sm font-medium text-green-800 dark:text-green-200 flex items-center gap-2">
-                <DollarSign className="h-4 w-4" />
+                <IndianRupee className="h-4 w-4" />
                 Total Overall Income
               </CardTitle>
               <p className="text-xs text-green-600 dark:text-green-400 mt-1">All time earnings</p>
@@ -137,7 +137,7 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-green-900 dark:text-green-100" data-testid="text-total-overall-income">
-                ₹ {stats?.totalOverallIncome ?? 0}
+                ₹ {(stats?.totalOverallIncome ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -167,7 +167,7 @@ export default function IncomeDashboard() {
                     </div>
                     <p className="text-2xl font-bold text-foreground flex items-center gap-1">
                       <span className="text-green-600">₹</span>
-                      {month.amount}
+                      {month.amount.toLocaleString("en-IN")}
                     </p>
                   </CardContent>
                 </Card>
@@ -189,7 +189,7 @@ export default function IncomeDashboard() {
             ) : (
               <p className="text-3xl font-bold text-black dark:text-white flex items-center gap-1" data-testid="text-avg-monthly-income">
                 <span className="text-green-600">₹</span>
-                {stats?.averageMonthlyIncome ?? 0}
+                {(stats?.averageMonthlyIncome ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -205,8 +205,8 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-black dark:text-white flex items-center gap-1" data-testid="text-total-payments">
-                <span className="text-blue-600 dark:text-blue-400">$</span>
-                {stats?.totalPaymentsReceived ?? 0}
+                <span className="text-blue-600 dark:text-blue-400">₹</span>
+                {(stats?.totalPaymentsReceived ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>

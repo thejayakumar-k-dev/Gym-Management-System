@@ -15,6 +15,7 @@ import { Download, Search, Calendar } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Attendance } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { authHeaders } from "@/lib/queryClient";
 
 // Helper function to format time from ISO UTC to local time
 function formatTime(time: string | null | undefined) {
@@ -45,7 +46,9 @@ export default function AttendanceHistory() {
   const { data: attendanceRecords, isLoading } = useQuery<Attendance[]>({
     queryKey: ["/api/attendance", selectedDate],
     queryFn: async () => {
-      const res = await fetch(`/api/attendance?date=${selectedDate}`);
+      const res = await fetch(`/api/attendance?date=${selectedDate}`, {
+        headers: await authHeaders(),
+      });
       if (!res.ok) throw new Error("Failed to fetch attendance records");
       return res.json();
     },

@@ -57,6 +57,7 @@ type AdminConfig = {
 
 type FormState = {
   vendorId: string;
+  projectName: string;
   authUrl: string;
   apiKey: string;
   databaseUrl: string;
@@ -65,6 +66,7 @@ type FormState = {
 
 const EMPTY_FORM: FormState = {
   vendorId: "",
+  projectName: "",
   authUrl: "",
   apiKey: "",
   databaseUrl: "",
@@ -122,14 +124,8 @@ export default function NeonProjects() {
   }, [vendors, projects, editing]);
 
   const createMutation = useMutation({
-    mutationFn: (data: {
-      vendorId: number;
-      authUrl: string;
-      apiKey: string;
-      databaseUrl: string;
-      authSecret: string;
-      port: number;
-    }) => apiRequest("POST", "/api/vendor-neon-projects", data),
+    mutationFn: (data: { vendorId: number; projectName?: string }) =>
+      apiRequest("POST", "/api/vendor-neon-projects", data),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["/api/vendor-neon-projects"],
@@ -182,6 +178,7 @@ export default function NeonProjects() {
     setEditing(project);
     setForm({
       vendorId: String(project.vendorId),
+      projectName: "",
       authUrl: "",
       apiKey: "",
       databaseUrl: "",
@@ -218,28 +215,9 @@ export default function NeonProjects() {
       return;
     }
 
-    if (
-      !form.authUrl.trim() ||
-      !form.apiKey.trim() ||
-      !form.databaseUrl.trim() ||
-      !form.authSecret.trim()
-    ) {
-      toast({
-        title: "All fields are required",
-        description:
-          "Fill in the Auth URL, API key, database URL and auth secret.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     createMutation.mutate({
       vendorId: Number(form.vendorId),
-      authUrl: form.authUrl.trim(),
-      apiKey: form.apiKey.trim(),
-      databaseUrl: form.databaseUrl.trim(),
-      authSecret: form.authSecret.trim(),
-      port: Number(DEFAULT_PORT),
+      projectName: form.projectName.trim() || undefined,
     });
   };
 
@@ -471,7 +449,7 @@ export default function NeonProjects() {
             <DialogDescription>
               {editing
                 ? "Leave a field blank to keep its current value."
-                : "Store the Neon credentials for the selected vendor."}
+                : "Allocate a new Neon database for the selected vendor."}
             </DialogDescription>
           </DialogHeader>
 
@@ -503,9 +481,39 @@ export default function NeonProjects() {
               </Select>
             </div>
 
-            <div className="space-y-2">
-              <Label>Neon Auth URL {editing ? "" : "*"}</Label>
-              <Input
+            {!editing && (
+              <>
+                <div className="space-y-2">
+                  <Label>Gym / Database Name</Label>
+                  <Input
+                    placeholder="e.g. FitLife-Gym (defaults to business name)"
+                    value={form.projectName}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, projectName: e.target.value }))
+                    }
+                    data-testid="input-project-name"
+                  />
+                  <p className="text-xs text-gray-400">
+                    A new Neon project with this name will be created, migrated and
+                    connected to the vendor automatically.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Port</Label>
+                  <Input value={DEFAULT_PORT} disabled className="bg-muted" />
+                  <p className="text-xs text-gray-400">
+                    Default port 5000 is used for all vendors.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {editing && (
+              <>
+                <div className="space-y-2">
+                  <Label>Neon Auth URL</Label>
+                  <Input
                 placeholder={
                   editing ? editing.authUrl : "https://ep-xxxx.neonauth.us-east-1.aws.neon.tech"
                 }
@@ -518,7 +526,7 @@ export default function NeonProjects() {
             </div>
 
             <div className="space-y-2">
-              <Label>API Key {editing ? "" : "*"}</Label>
+              <Label>API Key</Label>
               <Input
                 placeholder={editing ? editing.apiKey : "napi_..."}
                 value={form.apiKey}
@@ -530,7 +538,7 @@ export default function NeonProjects() {
             </div>
 
             <div className="space-y-2">
-              <Label>Database URL {editing ? "" : "*"}</Label>
+              <Label>Database URL</Label>
               <Input
                 placeholder={
                   editing ? editing.databaseUrl : "postgresql://user:pass@host:5432/db"
@@ -544,7 +552,7 @@ export default function NeonProjects() {
             </div>
 
             <div className="space-y-2">
-              <Label>Auth Secret {editing ? "" : "*"}</Label>
+              <Label>Auth Secret</Label>
               <Input
                 placeholder={
                   editing ? editing.authSecret : "your-auth-secret..."
@@ -561,9 +569,11 @@ export default function NeonProjects() {
               <Label>Port</Label>
               <Input value={DEFAULT_PORT} disabled className="bg-muted" />
               <p className="text-xs text-gray-400">
-                Default port 5000 is used for all vendors.
-              </p>
-            </div>
+Default port 5000 is used for all vendors.
+                  </p>
+                </div>
+              </>
+            )}
 
             <DialogFooter className="gap-2 sm:gap-2">
               <Button

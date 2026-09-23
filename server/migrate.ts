@@ -58,6 +58,16 @@ const CREATE_TABLES_SQL = [
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
+
+  // Membership plans (per-gym plan prices keyed by duration in months)
+  `CREATE TABLE IF NOT EXISTS membership_plans (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    duration_months INTEGER NOT NULL UNIQUE,
+    price INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`,
+  `ALTER TABLE membership_plans ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT ''`,
 ];
 
 /**

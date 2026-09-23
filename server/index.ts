@@ -48,6 +48,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(authMiddleware);
+
 (async () => {
 
   const server = await registerRoutes(app);

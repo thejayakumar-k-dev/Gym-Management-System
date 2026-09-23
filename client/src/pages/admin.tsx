@@ -10,27 +10,23 @@ import {
   ShieldAlert,
   Store,
   Wallet,
-  FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import AdminDashboard from "@/pages/admin-dashboard";
 import Vendors from "@/pages/vendors";
 import VendorAccounts from "@/pages/vendor-accounts";
-import Reports from "@/pages/reports";
 
 const sidebarItems = [
   { title: "Dashboard", icon: LayoutDashboard, url: "/admin" },
   { title: "Vendors", icon: Store, url: "/admin/vendors" },
   { title: "Vendor Accounts", icon: Wallet, url: "/admin/vendor-accounts" },
-  { title: "Reports", icon: FileText, url: "/admin/reports" },
 ];
 
 const pageTitles: Record<string, string> = {
   "/admin": "Dashboard",
   "/admin/vendors": "Vendors",
   "/admin/vendor-accounts": "Vendor Accounts",
-  "/admin/reports": "Reports",
 };
 
 type SidebarNavProps = {
@@ -221,8 +217,6 @@ export default function AdminPanel() {
               <Vendors />
             ) : location === "/admin/vendor-accounts" ? (
               <VendorAccounts />
-            ) : location === "/admin/reports" ? (
-              <Reports />
             ) : (
               <AdminDashboard />
             )}

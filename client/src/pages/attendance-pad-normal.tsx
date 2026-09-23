@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
+import { authHeaders } from "@/lib/queryClient";
 import { Delete, Check, AlertTriangle, CheckCircle } from "lucide-react";
 import type { Student } from "@shared/schema";
 
@@ -16,6 +17,7 @@ interface PreviewData {
   student?: {
     name: string;
     registerNumber: string;
+    expiryDate?: string;
   };
   daysLeft?: number;
   isExpired?: boolean;
@@ -76,7 +78,7 @@ export default function AttendancePad() {
 
       const response = await fetch("/api/attendance", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({
           registerNumber: student.registerNo,
         }),
@@ -175,18 +177,18 @@ export default function AttendancePad() {
   // Full-screen preview view
   if (previewData && previewStyle) {
     return (
-      <div className="min-h-[calc(100dvh-8rem)] flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
-        <Card className={`w-full max-w-lg p-6 sm:p-12 space-y-8 border-4 ${previewStyle.borderColor} ${previewStyle.bgColor}`}>
-          <div className="text-center space-y-6">
+      <div className="flex h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6.5rem)] flex-col items-center overflow-hidden">
+        <Card className={`flex min-h-0 h-full w-full max-w-lg flex-col overflow-hidden border-4 ${previewStyle.borderColor} ${previewStyle.bgColor} p-5 sm:p-10 space-y-6`}>
+          <div className="text-center space-y-4">
             <div className={`flex justify-center ${previewStyle.iconColor}`}>
               {previewStyle.icon}
             </div>
-            <h1 className={`text-4xl font-bold ${previewStyle.messageColor}`}>{previewData.message}</h1>
+            <h1 className={`text-3xl sm:text-4xl font-bold ${previewStyle.messageColor}`}>{previewData.message}</h1>
           </div>
 
           {previewData.student && (
-            <div className={`space-y-6 text-lg`}>
-              <div className={`border-t-2 pt-6`} style={{borderColor: "currentColor"}}>
+            <div className={`min-h-0 flex-1 space-y-5 overflow-y-auto text-base sm:text-lg`}>
+              <div className={`border-t-2 pt-5`} style={{borderColor: "currentColor"}}>
                 <p className="text-muted-foreground text-sm mb-2">Name</p>
                 <p className={`font-bold text-2xl ${previewStyle.textColor}`}>{previewData.student.name}</p>
               </div>
@@ -197,6 +199,15 @@ export default function AttendancePad() {
                   {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "2-digit" })}
                 </p>
               </div>
+
+              {previewData.student?.expiryDate && (
+                <div>
+                  <p className="text-muted-foreground text-sm mb-2">Expiry Date</p>
+                  <p className={`font-bold text-xl ${previewStyle.textColor}`}>
+                    {new Date(previewData.student.expiryDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "2-digit" })}
+                  </p>
+                </div>
+              )}
 
               {previewData.timeIn && previewData.type === "success" && (
                 <div>
@@ -231,14 +242,14 @@ export default function AttendancePad() {
 
   // Number pad view
   return (
-    <div className="min-h-[calc(100dvh-8rem)] flex items-center justify-center bg-gradient-to-br from-background to-muted/20 p-4">
-      <Card className="w-full max-w-md p-6 sm:p-8 space-y-6 bg-card/80 backdrop-blur">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold text-foreground">Attendance</h1>
+    <div className="flex h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6.5rem)] flex-col items-center overflow-hidden">
+      <Card className="flex h-full min-h-0 w-full max-w-md flex-col overflow-hidden bg-card/80 p-5 sm:p-7 backdrop-blur">
+        <div className="mb-4 space-y-1 text-center shrink-0">
+          <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Attendance</h1>
           <p className="text-sm text-muted-foreground">Enter your register number</p>
         </div>
 
-        <div className="space-y-2">
+        <div className="mb-4 space-y-2 shrink-0">
           <Label htmlFor="register-input">Register Number</Label>
           <Input
             id="register-input"
@@ -246,19 +257,25 @@ export default function AttendancePad() {
             placeholder="Enter register number..."
             value={registerNumber}
             onChange={(e) => setRegisterNumber(e.target.value.toUpperCase())}
-            className="text-center text-2xl font-bold h-16"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            className="text-center text-2xl font-bold h-12 sm:h-14"
             data-testid="input-register-number"
             autoFocus
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="mb-4 grid min-h-0 flex-1 grid-cols-3 gap-3 sm:gap-4">
           {numbers.slice(0, 9).map((num) => (
             <Button
               key={num}
               variant="outline"
               size="lg"
-              className="h-16 text-2xl font-semibold"
+              className="min-h-0 h-full text-2xl font-semibold"
               onClick={() => handleNumberClick(num)}
               disabled={loading}
               data-testid={`button-number-${num}`}
@@ -268,11 +285,11 @@ export default function AttendancePad() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-4">
+        <div className="mb-4 shrink-0">
           <Button
             variant="outline"
             size="lg"
-            className="h-16 text-2xl font-semibold"
+            className="h-12 sm:h-14 w-full text-2xl font-semibold"
             onClick={() => handleNumberClick("0")}
             disabled={loading}
             data-testid="button-number-0"
@@ -281,11 +298,11 @@ export default function AttendancePad() {
           </Button>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="mb-4 grid shrink-0 grid-cols-2 gap-3 sm:gap-4">
           <Button
             variant="outline"
             size="lg"
-            className="h-14"
+            className="h-11 sm:h-12"
             onClick={handleClearLast}
             disabled={loading}
             data-testid="button-clear-last"
@@ -296,7 +313,7 @@ export default function AttendancePad() {
           <Button
             variant="secondary"
             size="lg"
-            className="h-14"
+            className="h-11 sm:h-12"
             onClick={handleClearAll}
             disabled={loading}
             data-testid="button-clear-all"
@@ -306,7 +323,7 @@ export default function AttendancePad() {
         </div>
 
         <Button
-          className="w-full h-14 text-lg font-semibold"
+          className="h-12 sm:h-14 w-full shrink-0 text-lg font-semibold"
           onClick={handleSubmit}
           disabled={!registerNumber || loading}
           data-testid="button-submit-attendance"

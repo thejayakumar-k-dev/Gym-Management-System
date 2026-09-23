@@ -14,17 +14,19 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { CreditCard, Receipt } from "lucide-react";
-import type { Student } from "@shared/schema";
+import type { Student, MembershipPlan } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { addMonths, calculatePlanPrice } from "@shared/duration";
+import { DurationPicker } from "@/components/duration-picker";
 
 const formSchema = z.object({
   searchQuery: z.string(),
   studentId: z.number().min(1, "Please select a student"),
   date: z.string().min(1, "Date is required"),
-  duration: z.number().min(1, "Duration must be at least 1 day"),
+  duration: z.number().min(1, "Duration must be at least 1 month"),
   amount: z.number().min(1, "Amount must be greater than 0"),
   paymentMethod: z.enum(["cash", "online"]),
 });
@@ -34,6 +36,7 @@ type FormValues = z.infer<typeof formSchema>;
 export default function Payments() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  const [tokenNumber, setTokenNumber] = useState<string | null>(null);
   const { toast } = useToast();
 
   const { data: students } = useQuery<Student[]>({
@@ -46,11 +49,25 @@ export default function Payments() {
       searchQuery: "",
       studentId: 0,
       date: new Date().toISOString().split("T")[0],
-      duration: 0,
+      duration: 1,
       amount: 0,
       paymentMethod: "cash",
     },
   });
+
+  const { data: plans } = useQuery<MembershipPlan[]>({
+    queryKey: ["/api/membership-plans"],
+  });
+
+  const watchedDuration = form.watch("duration");
+
+  // Auto-fill the amount from the Membership Plans tab prices.
+  useEffect(() => {
+    const price = calculatePlanPrice(plans ?? [], watchedDuration);
+    if (price > 0) {
+      form.setValue("amount", price);
+    }
+  }, [watchedDuration, plans]);
 
   const filteredStudents = students?.filter(
     (s) =>
@@ -68,11 +85,12 @@ export default function Payments() {
       toast({ title: "Payment recorded successfully" });
       setSelectedStudent(null);
       setSearchQuery("");
+      setTokenNumber(null);
       form.reset({
         searchQuery: "",
         studentId: 0,
         date: new Date().toISOString().split("T")[0],
-        duration: 0,
+        duration: 1,
         amount: 0,
         paymentMethod: "cash",
       });
@@ -87,13 +105,12 @@ export default function Payments() {
     setSelectedStudent(student);
     form.setValue("studentId", student.id);
     setSearchQuery(student.name);
+    setTokenNumber(`TKN-${Date.now()}`);
   };
 
   const getNewExpiryDate = (paymentDate: string, duration: number, currentExpiry?: string | null) => {
     const baseDate = currentExpiry && new Date(currentExpiry) > new Date(paymentDate) ? new Date(currentExpiry) : new Date(paymentDate);
-    const newDate = new Date(baseDate);
-    newDate.setDate(newDate.getDate() + duration);
-    return newDate;
+    return addMonths(baseDate, duration);
   };
 
   const onSubmit = (data: FormValues) => {
@@ -110,6 +127,7 @@ export default function Payments() {
       duration: data.duration,
       amount: data.amount,
       paymentMethod: data.paymentMethod,
+      tokenNumber: tokenNumber || undefined,
     } as any);
   };
 
@@ -178,17 +196,7 @@ export default function Payments() {
                   name="duration"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Membership Duration (Days) *</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          placeholder="Enter number of days (e.g. 30)"
-                          value={field.value === 0 ? "" : field.value}
-                          onChange={(e) => field.onChange(e.target.value ? parseInt(e.target.value) : 0)}
-                          data-testid="input-duration"
-                        />
-                      </FormControl>
-                      <FormMessage />
+                      <DurationPicker value={field.value} onChange={field.onChange} />
                     </FormItem>
                   )}
                 />
@@ -265,7 +273,9 @@ export default function Payments() {
               <div className="space-y-3">
                 <div className="p-3 bg-muted rounded-md">
                   <p className="text-xs text-muted-foreground">Token Number</p>
-                  <p className="text-2xl font-bold text-orange-600 dark:text-orange-500">#-</p>
+                  <p className="text-2xl font-bold text-orange-600 dark:text-orange-500">
+                    {tokenNumber ?? "#-"}
+                  </p>
                 </div>
 
                 <div className="p-3 bg-muted rounded-md">
@@ -278,16 +288,9 @@ export default function Payments() {
                   <p className="font-bold text-lg">{selectedStudent.registerNo}</p>
                 </div>
 
-                <div className="p-3 bg-muted rounded-md">
-                  <p className="text-xs text-muted-foreground">Current Expiry Date</p>
-                  <p className="font-bold text-lg">
-                    {!selectedStudent.expiryDate || new Date(selectedStudent.expiryDate).toLocaleDateString() === new Date("1970-01-01").toLocaleDateString() ? "Not Set" : new Date(selectedStudent.expiryDate).toLocaleDateString()}
-                  </p>
-                </div>
-
                 {form.watch("duration") > 0 && form.watch("date") && (
                   <div className="p-4 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-md">
-                    <p className="text-xs text-green-700 dark:text-green-400 font-medium mb-1">New Expiry Date</p>
+                    <p className="text-xs text-green-700 dark:text-green-400 font-medium mb-1">Membership Expiry Date</p>
                     <p className="font-bold text-lg text-green-900 dark:text-green-300">
                       {getNewExpiryDate(form.watch("date"), form.watch("duration"), selectedStudent.expiryDate).toLocaleDateString("en-GB", {
                         day: "2-digit",
@@ -296,7 +299,9 @@ export default function Payments() {
                       }).replace(/ /g, "-")}
                     </p>
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
-                      {form.watch("duration")} days from payment date
+                      {form.watch("duration") === 1
+                        ? "1 month from payment date"
+                        : `${form.watch("duration")} months from payment date`}
                     </p>
                   </div>
                 )}
