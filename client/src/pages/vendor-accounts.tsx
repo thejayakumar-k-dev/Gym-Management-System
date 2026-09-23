@@ -38,7 +38,6 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import {
   Search,
-  Plus,
   Wallet,
   MoreVertical,
   Pencil,
@@ -219,17 +218,31 @@ export default function VendorAccounts() {
 
   /**
    * Radix UI Dialog adds scroll-lock styles and a FocusScope to document.body
-   * while open. If cleanup is interrupted (e.g. by a React re-render mid-animation),
-   * the body can be left with pointer-events:none or overflow:hidden, freezing the UI.
-   * This helper forcibly restores the body after dialog close.
+   * while open. If cleanup is interrupted (e.g. by a React re-render mid-animation
+   * or when opened from a DropdownMenu), the body can be left with pointer-events:none,
+   * completely freezing the UI. This helper reliably restores the body.
    */
   const forceRestoreBody = () => {
-    requestAnimationFrame(() => {
-      document.body.style.pointerEvents = "";
-      document.body.style.overflow = "";
-      document.body.removeAttribute("data-scroll-locked");
-    });
+    const restore = () => {
+      if (!document.querySelector('[role="dialog"]')) {
+        document.body.style.pointerEvents = "";
+        document.body.style.overflow = "";
+        document.body.removeAttribute("data-scroll-locked");
+      }
+    };
+    restore();
+    requestAnimationFrame(restore);
+    setTimeout(restore, 0);
+    setTimeout(restore, 50);
+    setTimeout(restore, 150);
+    setTimeout(restore, 300);
   };
+
+  useEffect(() => {
+    if (!addDaysOpen && !isFormOpen && !deleteTarget) {
+      forceRestoreBody();
+    }
+  }, [addDaysOpen, isFormOpen, deleteTarget]);
 
   const addDaysCreateMutation = useMutation({
     mutationFn: (data: {
@@ -310,18 +323,6 @@ export default function VendorAccounts() {
       });
     },
   });
-
-  const openAddForm = () => {
-    setEditing(null);
-    setForm(EMPTY_FORM);
-    setIsFormOpen(true);
-  };
-
-  const openAddFormForVendor = (vendorId: number) => {
-    setEditing(null);
-    setForm({ vendorId: String(vendorId), availableDays: "", creditDays: "" });
-    setIsFormOpen(true);
-  };
 
   const openAddDaysForm = (vendorId: number) => {
     setAddDaysMode("days");
@@ -433,15 +434,7 @@ export default function VendorAccounts() {
             Manage available and credit days for each vendor
           </p>
         </div>
-        <Button
-          onClick={openAddForm}
-          className="bg-red-600 hover:bg-red-700 text-white"
-          data-testid="button-add-vendor-account"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Account
-        </Button>
-      </div>
+        </div>
 
       {/* ── Search box ── */}
       <div className="relative max-w-sm">
@@ -501,11 +494,6 @@ export default function VendorAccounts() {
                         ? "No accounts match your search"
                         : "No vendor accounts yet"}
                     </p>
-                    {!search && (
-                      <p className="text-xs text-gray-400">
-                        Click "Add Account" to create the first vendor account
-                      </p>
-                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -575,7 +563,7 @@ export default function VendorAccounts() {
                     })()}
                   </TableCell>
                   <TableCell className="text-right">
-                    <DropdownMenu>
+                    <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
                         <Button
                           variant="ghost"
@@ -595,6 +583,7 @@ export default function VendorAccounts() {
                           View History
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onSelect={() => openAddDaysForm(row.vendor.id)}
                           onClick={() => openAddDaysForm(row.vendor.id)}
                           className="cursor-pointer gap-2"
                           data-testid={`menu-update-days-${row.vendor.id}`}
@@ -603,6 +592,7 @@ export default function VendorAccounts() {
                           Update Days
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                          onSelect={() => openCreditsForm(row.vendor.id)}
                           onClick={() => openCreditsForm(row.vendor.id)}
                           className="cursor-pointer gap-2"
                           data-testid={`menu-update-credits-${row.vendor.id}`}
@@ -766,7 +756,15 @@ export default function VendorAccounts() {
       </Dialog>
 
       {/* ── Add Account Days dialog ── */}
-      <Dialog open={addDaysOpen} onOpenChange={(open) => { if (!open && !addDaysUpdateMutation.isPending && !addDaysCreateMutation.isPending) setAddDaysOpen(false); }}>
+      <Dialog
+        open={addDaysOpen}
+        onOpenChange={(open) => {
+          if (!open && !addDaysUpdateMutation.isPending && !addDaysCreateMutation.isPending) {
+            setAddDaysOpen(false);
+            forceRestoreBody();
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -832,7 +830,10 @@ export default function VendorAccounts() {
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setAddDaysOpen(false)}
+              onClick={() => {
+                setAddDaysOpen(false);
+                forceRestoreBody();
+              }}
               disabled={addDaysUpdateMutation.isPending || addDaysCreateMutation.isPending}
             >
               Cancel
