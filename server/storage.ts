@@ -242,7 +242,8 @@ export class DrizzleStorage implements IStorage {
     let authUid: string | null = null;
     if (password) {
       const authEmail = `${vendor.phone}@gmail.com`;
-      const result = await createNeonAuthUser(authEmail, password, `${vendor.firstName} ${vendor.lastName}`.trim());
+      const displayName = [vendor.firstName, vendor.lastName].filter(Boolean).join(" ").trim();
+      const result = await createNeonAuthUser(authEmail, password, displayName);
       if (result.id) {
         authUid = result.id;
       } else {
@@ -254,7 +255,7 @@ export class DrizzleStorage implements IStorage {
     // 2. Vendor record in central DB
     const rows = await db.insert(vendors).values({
       firstName: vendor.firstName,
-      lastName: vendor.lastName,
+      lastName: vendor.lastName || "",
       phone: vendor.phone,
       email: vendor.email || null,
       businessName: vendor.businessName || null,
@@ -273,7 +274,8 @@ export class DrizzleStorage implements IStorage {
 
     // 3. Auto-provision Neon project for this gym
     try {
-      const projectName = `Gym-${vendor.firstName}-${vendor.lastName}`.replace(/[^a-zA-Z0-9-]/g, "");
+      const safeLastName = vendor.lastName ? `-${vendor.lastName}` : "";
+      const projectName = `Gym-${vendor.firstName}${safeLastName}`.replace(/[^a-zA-Z0-9-]/g, "");
       const project = await createNeonProject(projectName);
 
       // Get connection string from the new project

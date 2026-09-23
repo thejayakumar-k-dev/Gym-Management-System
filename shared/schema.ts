@@ -52,7 +52,7 @@ export type Student = typeof students.$inferSelect;
 export const vendors = pgTable("vendors", {
   id: serial("id").primaryKey(),
   firstName: text("first_name").notNull(),
-  lastName: text("last_name").notNull(),
+  lastName: text("last_name").notNull().default(""),
   phone: varchar("phone", { length: 20 }).notNull(),
   email: text("email"),
   businessName: text("business_name"),
@@ -81,8 +81,9 @@ export const insertVendorSchema = createInsertSchema(vendors)
       .regex(NAME_REGEX, "First name cannot contain special characters"),
     lastName: z
       .string()
-      .min(1, "Last name is required")
-      .regex(NAME_REGEX, "Last name cannot contain special characters"),
+      .regex(NAME_REGEX, "Last name cannot contain special characters")
+      .optional()
+      .or(z.literal("")),
     phone: z
       .string()
       .regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),

@@ -76,8 +76,9 @@ const baseFormSchema = z.object({
     .regex(NAME_REGEX, "First name cannot contain special characters"),
   lastName: z
     .string()
-    .min(1, "Last name is required")
-    .regex(NAME_REGEX, "Last name cannot contain special characters"),
+    .regex(NAME_REGEX, "Last name cannot contain special characters")
+    .optional()
+    .or(z.literal("")),
   phone: z.string().regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),
   password: z.string().min(8, "Password must be at least 8 characters").optional().or(z.literal("")),
   email: z
@@ -464,7 +465,7 @@ export default function Vendors() {
                       name="lastName"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Last Name *</FormLabel>
+                          <FormLabel>Last Name</FormLabel>
                           <FormControl>
                             <Input
                               placeholder="e.g. Kumar"
