@@ -20,12 +20,14 @@ const CREATE_TABLES_SQL = [
     id SERIAL PRIMARY KEY,
     register_no VARCHAR(50) NOT NULL UNIQUE,
     name TEXT NOT NULL,
+    batch VARCHAR(10) NOT NULL DEFAULT 'morning',
     phone VARCHAR(20) NOT NULL,
     address TEXT NOT NULL,
     join_date DATE NOT NULL,
     expiry_date DATE,
     created_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
+  `ALTER TABLE students ADD COLUMN IF NOT EXISTS batch VARCHAR(10) NOT NULL DEFAULT 'morning'`,
 
   // Payments
   `CREATE TABLE IF NOT EXISTS payments (

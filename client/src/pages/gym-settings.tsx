@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useGymSettings } from "@/hooks/use-gym-settings";
 import { useGymName } from "@/lib/gym-name";
+import { useReadOnly } from "@/lib/read-only";
 import { useToast } from "@/hooks/use-toast";
 import { AlertCircle, X, Upload } from "lucide-react";
 
@@ -21,6 +22,7 @@ const ICON_STYLES = [
 export default function GymSettings() {
   const { settings, updateSettings } = useGymSettings();
   const gymName = useGymName();
+  const readOnly = useReadOnly();
   const { toast } = useToast();
   const [selectedStyle, setSelectedStyle] = useState(0);
   const [gymImage, setGymImage] = useState(settings.logoImage || "");
@@ -117,23 +119,25 @@ export default function GymSettings() {
               {/* Image Upload Section */}
               <div className="space-y-3">
                 {/* File Input */}
-                <div
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-6 text-center cursor-pointer hover:border-slate-400 dark:hover:border-slate-500 transition-colors"
-                  data-testid="dropzone-image-upload"
-                >
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    className="hidden"
-                    data-testid="input-image-upload"
-                  />
-                  <Upload className="w-8 h-8 mx-auto mb-2 text-slate-400" />
-                  <p className="text-sm font-medium text-foreground">Click to upload image</p>
-                  <p className="text-xs text-muted-foreground">PNG, JPG (max 2MB)</p>
-                </div>
+                {!readOnly && (
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-lg p-6 text-center cursor-pointer hover:border-slate-400 dark:hover:border-slate-500 transition-colors"
+                    data-testid="dropzone-image-upload"
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                      className="hidden"
+                      data-testid="input-image-upload"
+                    />
+                    <Upload className="w-8 h-8 mx-auto mb-2 text-slate-400" />
+                    <p className="text-sm font-medium text-foreground">Click to upload image</p>
+                    <p className="text-xs text-muted-foreground">PNG, JPG (max 2MB)</p>
+                  </div>
+                )}
 
                 {/* Image Preview */}
                 {gymImage && imageType === "custom" && (
@@ -218,16 +222,18 @@ export default function GymSettings() {
             </div>
 
             {/* Buttons Container */}
-            <div className="flex gap-3">
-              <Button
-                onClick={handleSaveSettings}
-                className="w-full h-12 text-white font-bold"
-                style={{ backgroundColor: primaryColor }}
-                data-testid="button-save-settings"
-              >
-                Save Settings
-              </Button>
-            </div>
+            {!readOnly && (
+              <div className="flex gap-3">
+                <Button
+                  onClick={handleSaveSettings}
+                  className="w-full h-12 text-white font-bold"
+                  style={{ backgroundColor: primaryColor }}
+                  data-testid="button-save-settings"
+                >
+                  Save Settings
+                </Button>
+              </div>
+            )}
 
             {/* Note */}
             <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3 flex gap-2">

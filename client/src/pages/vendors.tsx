@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -1113,7 +1114,7 @@ export default function Vendors() {
                       Added On
                     </p>
                     <p className="text-sm text-gray-900">
-                      {new Date(viewingVendor.createdAt).toLocaleDateString()}
+                      {formatDate(viewingVendor.createdAt)}
                     </p>
                   </div>
                 </div>

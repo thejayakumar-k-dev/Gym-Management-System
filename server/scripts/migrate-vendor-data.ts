@@ -90,6 +90,7 @@ async function copyTo(vendorDb: DrizzleDB): Promise<{ students: number; payments
         id: s.id,
         registerNo: s.registerNo,
         name: s.name,
+        batch: s.batch,
         phone: s.phone,
         address: s.address,
         joinDate: s.joinDate,
@@ -145,7 +146,7 @@ async function main() {
 
   const allVendors = await db.select().from(vendors).orderBy(vendors.id);
 
-  const centralStudents = await db.select().from(students);
+  const centralStudents = await storage.getStudents();
   const centralPayments = await db.select().from(payments);
   const centralAttendance = await db.select().from(attendance);
   const centralCounts = {

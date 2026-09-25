@@ -1,5 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import { getIdToken } from "@/lib/auth";
+import { isReadOnlyMode } from "@/lib/read-only";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -26,6 +27,12 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  // Read Only mode (admin viewing a vendor panel): block every write before it
+  // leaves the browser. GETs are always allowed.
+  if (method.toUpperCase() !== "GET" && isReadOnlyMode()) {
+    throw new Error("Read-only mode — changes are disabled for this view");
+  }
+
   const headers = await authHeaders(
     data ? { "Content-Type": "application/json" } : {}
   );

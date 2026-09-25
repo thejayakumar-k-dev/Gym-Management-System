@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { formatDate } from "@/lib/format";
+import { useReadOnly } from "@/lib/read-only";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -49,10 +51,12 @@ const editPaymentSchema = z.object({
 
 type EditPaymentValues = z.infer<typeof editPaymentSchema>;
 
-export default function ModifyPayments() {
+export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  // Admin viewing this vendor's panel in Read Only mode — records are untouchable.
+  const readOnly = useReadOnly();
   const { toast } = useToast();
 
   const { data: payments, isLoading } = useQuery<Payment[]>({
@@ -143,18 +147,18 @@ export default function ModifyPayments() {
                     <TableHead>Token #</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Student Name</TableHead>
-                    <TableHead>Register No.</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Payment Method</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {!readOnly && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {payments.map((payment) => (
                     <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`}>
                       <TableCell className="font-medium">{payment.tokenNumber}</TableCell>
-                      <TableCell>{new Date(payment.date).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDate(payment.date)}</TableCell>
                       <TableCell>{payment.studentName}</TableCell>
                       <TableCell>{payment.registerNo}</TableCell>
                       <TableCell>{formatDuration(payment.duration)}</TableCell>
@@ -179,26 +183,32 @@ export default function ModifyPayments() {
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-medium">₹ {payment.amount}</TableCell>
+                      {!readOnly && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenDialog(payment)}
-                            data-testid={`button-edit-${payment.id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteConfirmId(payment.id)}
-                            data-testid={`button-delete-${payment.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenDialog(payment)}
+                              data-testid={`button-edit-${payment.id}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {isAdmin && !readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteConfirmId(payment.id)}
+                              data-testid={`button-delete-${payment.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>

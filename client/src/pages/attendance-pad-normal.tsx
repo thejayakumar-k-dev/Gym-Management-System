@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { authHeaders } from "@/lib/queryClient";
-import { Delete, Check, AlertTriangle, CheckCircle } from "lucide-react";
+import { formatDateLong } from "@/lib/format";
+import { isReadOnlyMode, useReadOnly } from "@/lib/read-only";
+import { Check, AlertTriangle, CheckCircle } from "lucide-react";
 import type { Student } from "@shared/schema";
 
 type PreviewState = null | "success" | "expired" | "already_marked" | "error";
@@ -29,28 +30,58 @@ export default function AttendancePad() {
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
+  // Admin viewing this vendor's panel in Read Only mode — no check-ins.
+  const readOnly = useReadOnly();
 
   const { data: students } = useQuery<Student[]>({
     queryKey: ["/api/students"],
   });
 
+  // Keep the cursor parked in the member ID box: focus on mount, after every
+  // keypad tap, when the window/tab regains focus, and whenever the pad area
+  // itself is touched — so the on-screen keyboard never ends up detached.
+  const inputRef = useRef<HTMLInputElement>(null);
+  const focusInput = () => inputRef.current?.focus();
+
+  useEffect(() => {
+    focusInput();
+    window.addEventListener("focus", focusInput);
+    return () => window.removeEventListener("focus", focusInput);
+  }, []);
+
+  // When the result screen clears (auto-reset after 4s) the pad comes back —
+  // grab focus again so the next member can just start typing.
+  useEffect(() => {
+    if (!previewData) focusInput();
+  }, [previewData]);
+
+  // Clicking anywhere else — sidebar on the left, empty space on the right,
+  // header buttons — must never steal the cursor. Re-focus after the browser
+  // has finished its own focus handling (hence rAF), and skip when the input
+  // already has it so the caret is never reset while typing.
+  useEffect(() => {
+    const refocus = () => {
+      window.requestAnimationFrame(() => {
+        if (document.activeElement !== inputRef.current) inputRef.current?.focus();
+      });
+    };
+    document.addEventListener("pointerdown", refocus);
+    document.addEventListener("focusin", refocus);
+    return () => {
+      document.removeEventListener("pointerdown", refocus);
+      document.removeEventListener("focusin", refocus);
+    };
+  }, []);
+
   const handleNumberClick = (num: string) => {
     setRegisterNumber((prev) => prev + num);
-  };
-
-  const handleClearLast = () => {
-    setRegisterNumber((prev) => prev.slice(0, -1));
-  };
-
-  const handleClearAll = () => {
-    setRegisterNumber("");
-    setPreviewData(null);
+    focusInput();
   };
 
   const handleSubmit = async () => {
     if (!registerNumber.trim()) {
       toast({
-        title: "Please enter a register number",
+        title: "Please enter a member ID",
         variant: "destructive",
       });
       return;
@@ -60,6 +91,14 @@ export default function AttendancePad() {
     if (!student) {
       toast({
         title: "Student not found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isReadOnlyMode()) {
+      toast({
+        title: "Read-only mode — changes are disabled",
         variant: "destructive",
       });
       return;
@@ -178,8 +217,8 @@ export default function AttendancePad() {
   if (previewData && previewStyle) {
     return (
       <div className="flex h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6.5rem)] flex-col items-center overflow-hidden">
-        <Card className={`flex min-h-0 h-full w-full max-w-lg flex-col overflow-hidden border-4 ${previewStyle.borderColor} ${previewStyle.bgColor} p-5 sm:p-10 space-y-6`}>
-          <div className="text-center space-y-4">
+        <Card className={`flex min-h-0 h-full w-full max-w-lg flex-col overflow-hidden border-4 ${previewStyle.borderColor} ${previewStyle.bgColor} p-5 sm:p-6 space-y-4`}>
+          <div className="text-center space-y-3">
             <div className={`flex justify-center ${previewStyle.iconColor}`}>
               {previewStyle.icon}
             </div>
@@ -187,8 +226,8 @@ export default function AttendancePad() {
           </div>
 
           {previewData.student && (
-            <div className={`min-h-0 flex-1 space-y-5 overflow-y-auto text-base sm:text-lg`}>
-              <div className={`border-t-2 pt-5`} style={{borderColor: "currentColor"}}>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto text-base sm:text-lg">
+              <div className={`border-t-2 pt-4`} style={{borderColor: "currentColor"}}>
                 <p className="text-muted-foreground text-sm mb-2">Name</p>
                 <p className={`font-bold text-2xl ${previewStyle.textColor}`}>{previewData.student.name}</p>
               </div>
@@ -196,7 +235,7 @@ export default function AttendancePad() {
               <div>
                 <p className="text-muted-foreground text-sm mb-2">Date</p>
                 <p className={`font-bold text-xl ${previewStyle.textColor}`}>
-                  {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "2-digit" })}
+                  {formatDateLong(new Date())}
                 </p>
               </div>
 
@@ -204,7 +243,7 @@ export default function AttendancePad() {
                 <div>
                   <p className="text-muted-foreground text-sm mb-2">Expiry Date</p>
                   <p className={`font-bold text-xl ${previewStyle.textColor}`}>
-                    {new Date(previewData.student.expiryDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "2-digit" })}
+                    {formatDateLong(previewData.student.expiryDate)}
                   </p>
                 </div>
               )}
@@ -226,7 +265,7 @@ export default function AttendancePad() {
               )}
 
               {previewData.daysLeft !== undefined && (
-                <div className={`border-t-2 pt-6`} style={{borderColor: "currentColor"}}>
+                <div className={`border-t-2 pt-4`} style={{borderColor: "currentColor"}}>
                   <p className="text-muted-foreground text-sm mb-2">Status</p>
                   <p className={`font-bold text-2xl ${previewStyle.statusColor}`}>
                     {previewData.isExpired ? "EXPIRED" : "ACTIVE"}
@@ -242,28 +281,40 @@ export default function AttendancePad() {
 
   // Number pad view
   return (
-    <div className="flex h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6.5rem)] flex-col items-center overflow-hidden">
+    <div
+      className="flex h-[calc(100dvh-5.5rem)] sm:h-[calc(100dvh-6.5rem)] flex-col items-center overflow-hidden"
+      onPointerDown={focusInput}
+    >
       <Card className="flex h-full min-h-0 w-full max-w-md flex-col overflow-hidden bg-card/80 p-5 sm:p-7 backdrop-blur">
         <div className="mb-4 space-y-1 text-center shrink-0">
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground">Attendance</h1>
-          <p className="text-sm text-muted-foreground">Enter your register number</p>
+          <p className="text-xs font-semibold text-muted-foreground sm:text-xl">Enter your member ID</p>
         </div>
 
         <div className="mb-4 space-y-2 shrink-0">
-          <Label htmlFor="register-input">Register Number</Label>
           <Input
+            ref={inputRef}
             id="register-input"
             type="text"
-            placeholder="Enter register number..."
             value={registerNumber}
-            onChange={(e) => setRegisterNumber(e.target.value.toUpperCase())}
+            onChange={(e) => setRegisterNumber(e.target.value.replace(/\D/g, ""))}
+            inputMode="numeric"
+            pattern="[0-9]*"
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
                 handleSubmit();
+              } else if (e.key === "+") {
+                // On-screen numeric keypads (tablets/phones) show a "+" key but
+                // no delete key — treat it as backspace so a mistyped digit can
+                // be corrected without re-entering the whole member ID.
+                e.preventDefault();
+                setRegisterNumber((prev) => prev.slice(0, -1));
+              } else if (e.key.length === 1 && !/^\d$/.test(e.key)) {
+                e.preventDefault();
               }
             }}
-            className="text-center text-2xl font-bold h-12 sm:h-14"
+            className="h-16 text-center text-4xl font-bold sm:h-20 sm:text-5xl md:text-5xl"
             data-testid="input-register-number"
             autoFocus
           />
@@ -298,39 +349,17 @@ export default function AttendancePad() {
           </Button>
         </div>
 
-        <div className="mb-4 grid shrink-0 grid-cols-2 gap-3 sm:gap-4">
+        {!readOnly && (
           <Button
-            variant="outline"
-            size="lg"
-            className="h-11 sm:h-12"
-            onClick={handleClearLast}
-            disabled={loading}
-            data-testid="button-clear-last"
+            className="h-12 sm:h-14 w-full shrink-0 text-lg font-semibold"
+            onClick={handleSubmit}
+            disabled={!registerNumber || loading}
+            data-testid="button-submit-attendance"
           >
-            <Delete className="mr-2 h-5 w-5" />
-            Clear Last
+            <Check className="mr-2 h-5 w-5" />
+            {loading ? "Recording..." : "Submit"}
           </Button>
-          <Button
-            variant="secondary"
-            size="lg"
-            className="h-11 sm:h-12"
-            onClick={handleClearAll}
-            disabled={loading}
-            data-testid="button-clear-all"
-          >
-            Clear All
-          </Button>
-        </div>
-
-        <Button
-          className="h-12 sm:h-14 w-full shrink-0 text-lg font-semibold"
-          onClick={handleSubmit}
-          disabled={!registerNumber || loading}
-          data-testid="button-submit-attendance"
-        >
-          <Check className="mr-2 h-5 w-5" />
-          {loading ? "Recording..." : "Submit"}
-        </Button>
+        )}
       </Card>
     </div>
   );

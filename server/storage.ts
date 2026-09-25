@@ -8,6 +8,7 @@
 
 import { eq, desc, sql } from "drizzle-orm";
 import { db, type DrizzleDB } from "./db.js";
+import { isMembershipExpired } from "../shared/duration.js";
 import {
   students,
   payments,
@@ -63,6 +64,26 @@ function encryptedOf(value: string): string {
 // Tables created lazily for databases that predate the membership_plans
 // schema (CREATE TABLE IF NOT EXISTS is idempotent, so this is safe).
 const ensuredTables = new WeakSet<object>();
+const studentBatchMigrations = new WeakMap<object, Promise<void>>();
+
+function ensureStudentBatchColumn(dbc: DrizzleDB): Promise<void> {
+  const key = dbc as object;
+  const existing = studentBatchMigrations.get(key);
+  if (existing) return existing;
+
+  const migration = dbc
+    .execute(
+      sql.raw(
+        "ALTER TABLE students ADD COLUMN IF NOT EXISTS batch VARCHAR(10) NOT NULL DEFAULT 'morning'",
+      ),
+    )
+    .then(() => undefined);
+  studentBatchMigrations.set(key, migration);
+  return migration.catch((error) => {
+    studentBatchMigrations.delete(key);
+    throw error;
+  });
+}
 
 async function ensureMembershipPlansTable(dbc: DrizzleDB): Promise<void> {
   if (ensuredTables.has(dbc as object)) return;
@@ -185,23 +206,28 @@ export class DrizzleStorage implements IStorage {
   // ── Students ─────────────────────────────────────────────────────
 
   async getStudents(dbc: DrizzleDB = db): Promise<Student[]> {
+    await ensureStudentBatchColumn(dbc);
     return dbc.select().from(students).orderBy(desc(students.id));
   }
 
   async getStudentById(id: number, dbc: DrizzleDB = db): Promise<Student | undefined> {
+    await ensureStudentBatchColumn(dbc);
     const rows = await dbc.select().from(students).where(eq(students.id, id)).limit(1);
     return rows[0];
   }
 
   async getStudentByRegisterNo(registerNo: string, dbc: DrizzleDB = db): Promise<Student | undefined> {
+    await ensureStudentBatchColumn(dbc);
     const rows = await dbc.select().from(students).where(eq(students.registerNo, registerNo)).limit(1);
     return rows[0];
   }
 
   async createStudent(student: InsertStudent & { expiryDate?: string | null }, dbc: DrizzleDB = db): Promise<Student> {
+    await ensureStudentBatchColumn(dbc);
     const rows = await dbc.insert(students).values({
       registerNo: student.registerNo,
       name: student.name,
+      batch: student.batch,
       phone: student.phone,
       address: student.address || "",
       joinDate: student.joinDate,
@@ -211,9 +237,11 @@ export class DrizzleStorage implements IStorage {
   }
 
   async updateStudent(id: number, student: Partial<InsertStudent> & { expiryDate?: string | null }, dbc: DrizzleDB = db): Promise<Student> {
+    await ensureStudentBatchColumn(dbc);
     const updateData: Record<string, unknown> = {};
     if (student.registerNo !== undefined) updateData.registerNo = student.registerNo;
     if (student.name !== undefined) updateData.name = student.name;
+    if (student.batch !== undefined) updateData.batch = student.batch;
     if (student.phone !== undefined) updateData.phone = student.phone;
     if (student.address !== undefined) updateData.address = student.address || "";
     if (student.joinDate !== undefined) updateData.joinDate = student.joinDate;
@@ -835,6 +863,7 @@ export class DrizzleStorage implements IStorage {
     try {
       const { getDb } = await import("./db.js");
       const vendorDb = getDb(plaintextOf(keyRow.databaseUrl));
+      await ensureStudentBatchColumn(vendorDb);
 
       const [allStudents, allPayments, allAttendance] = await Promise.all([
         vendorDb.select().from(students),
@@ -849,7 +878,7 @@ export class DrizzleStorage implements IStorage {
 
       const totalMembers = allStudents.length;
       const activeMembers = allStudents.filter(
-        (s) => s.expiryDate && new Date(s.expiryDate) > now
+        (s) => !isMembershipExpired(s.expiryDate, now)
       ).length;
 
       const sumAmount = (rows: typeof allPayments) =>
@@ -926,6 +955,7 @@ export class DrizzleStorage implements IStorage {
   // ── Dashboard stats ──────────────────────────────────────────────
 
   async getDashboardStats(dbc: DrizzleDB = db) {
+    await ensureStudentBatchColumn(dbc);
     const [allStudents, allAttendance] = await Promise.all([
       dbc.select().from(students),
       dbc.select().from(attendance),
@@ -935,10 +965,9 @@ export class DrizzleStorage implements IStorage {
     const todayAttendance = allAttendance.filter((a) => a.date === today).length;
 
     const now = new Date();
-    const activeMemberships = allStudents.filter((s) => {
-      if (!s.expiryDate) return false;
-      return new Date(s.expiryDate) > now;
-    }).length;
+    const activeMemberships = allStudents.filter(
+      (s) => !isMembershipExpired(s.expiryDate, now)
+    ).length;
 
     return {
       totalStudents: allStudents.length,

@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Attendance } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { authHeaders } from "@/lib/queryClient";
+import { formatDate, formatDateFull } from "@/lib/format";
 
 // Helper function to format time from ISO UTC to local time
 function formatTime(time: string | null | undefined) {
@@ -71,7 +72,7 @@ export default function AttendanceHistory() {
       return;
     }
 
-    const headers = ["Date", "Register No.", "Student Name", "Time In"];
+    const headers = ["Date", "Member ID", "Student Name", "Time In"];
     const rows = filteredRecords.map((record) => [
       record.date,
       record.registerNo,
@@ -116,12 +117,7 @@ export default function AttendanceHistory() {
           <CardTitle>Attendance Records</CardTitle>
           <CardDescription>
             Showing {filteredRecords?.length ?? 0} record(s) for{" "}
-            {new Date(selectedDate).toLocaleDateString("en-US", {
-              weekday: "long",
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+            {formatDateFull(selectedDate)}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -141,10 +137,10 @@ export default function AttendanceHistory() {
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Search className="h-4 w-4" />
-                Search by Register Number
+                Search by Member ID
               </label>
               <Input
-                placeholder="Enter register number..."
+                placeholder="Enter member ID..."
                 value={searchRegister}
                 onChange={(e) => setSearchRegister(e.target.value)}
                 data-testid="input-search-register"
@@ -164,7 +160,7 @@ export default function AttendanceHistory() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Register No.</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>Student Name</TableHead>
                     <TableHead>Time In</TableHead>
                   </TableRow>
@@ -172,7 +168,7 @@ export default function AttendanceHistory() {
                 <TableBody>
                   {filteredRecords.map((record) => (
                     <TableRow key={record.id} data-testid={`row-attendance-${record.id}`}>
-                      <TableCell>{new Date(record.date).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDate(record.date)}</TableCell>
                       <TableCell className="font-medium">{record.registerNo}</TableCell>
                       <TableCell>{record.studentName}</TableCell>
                       <TableCell>{formatTime(record.timeIn)}</TableCell>

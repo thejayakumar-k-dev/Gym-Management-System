@@ -73,8 +73,8 @@ function formatCurrency(amount: number) {
 
 function formatDate(value: string | Date) {
   return new Date(value).toLocaleDateString("en-IN", {
-    day: "numeric",
-    month: "short",
+    day: "2-digit",
+    month: "2-digit",
     year: "numeric",
   });
 }

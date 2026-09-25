@@ -15,6 +15,7 @@ import { TrendingUp, Search, History, Banknote, CreditCard } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Payment } from "@shared/schema";
 import { formatDuration } from "@shared/duration";
+import { formatDate } from "@/lib/format";
 
 export default function PaymentHistory() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -102,7 +103,7 @@ export default function PaymentHistory() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by name or register number..."
+                placeholder="Search by name or member ID..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pl-9"
@@ -132,7 +133,7 @@ export default function PaymentHistory() {
                   <TableRow>
                     <TableHead>Token #</TableHead>
                     <TableHead>Date</TableHead>
-                    <TableHead>Register No.</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>Student Name</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Payment Method</TableHead>
@@ -143,7 +144,7 @@ export default function PaymentHistory() {
                   {filteredPayments.map((payment) => (
                     <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`}>
                       <TableCell className="font-medium">{payment.tokenNumber}</TableCell>
-                      <TableCell>{new Date(payment.date).toLocaleDateString()}</TableCell>
+                      <TableCell>{formatDate(payment.date)}</TableCell>
                       <TableCell>{payment.registerNo}</TableCell>
                       <TableCell>{payment.studentName}</TableCell>
                       <TableCell>{formatDuration(payment.duration)}</TableCell>

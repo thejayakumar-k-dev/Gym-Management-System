@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type KeyboardEvent } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { addMonths, calculatePlanPrice } from "@shared/duration";
+import { formatDate } from "@/lib/format";
+import { useReadOnly } from "@/lib/read-only";
 import { DurationPicker } from "@/components/duration-picker";
 
 const formSchema = z.object({
@@ -36,6 +38,8 @@ type FormValues = z.infer<typeof formSchema>;
 export default function Payments() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
+  // Admin viewing this vendor's panel in Read Only mode — payments can't be recorded.
+  const readOnly = useReadOnly();
   const [tokenNumber, setTokenNumber] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -108,6 +112,50 @@ export default function Payments() {
     setTokenNumber(`TKN-${Date.now()}`);
   };
 
+  // Enter in the search box picks the member: an exact member-ID match wins,
+  // then an exact name match, then the top suggestion. It also stops the
+  // <form> from doing an implicit submit, which previously fired validation
+  // with no member selected and silently did nothing.
+  const handleSearchKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (selectedStudent || !searchQuery.trim()) return;
+
+    if (!filteredStudents || filteredStudents.length === 0) {
+      toast({ title: "No member found", variant: "destructive" });
+      return;
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+    const match =
+      filteredStudents.find((s) => s.registerNo.toLowerCase() === query) ||
+      filteredStudents.find((s) => s.name.toLowerCase() === query) ||
+      filteredStudents[0];
+
+    handleSelectStudent(match);
+  };
+
+  // Deep link from the dashboard's "Pay Now" button:
+  // /payments?student=<registerNo> pre-selects that member so staff land on the
+  // payment form with the expired member already loaded. The parameter is
+  // consumed once so a refresh or a second payment isn't hijacked by it.
+  const appliedStudentParam = useRef(false);
+  useEffect(() => {
+    if (appliedStudentParam.current || !students || selectedStudent) return;
+
+    const target = new URLSearchParams(window.location.search).get("student");
+    if (!target) return;
+
+    appliedStudentParam.current = true;
+    const match = students.find(
+      (s) => s.registerNo === target || String(s.id) === target
+    );
+    if (match) {
+      handleSelectStudent(match);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [students, selectedStudent]);
+
   const getNewExpiryDate = (paymentDate: string, duration: number, currentExpiry?: string | null) => {
     const baseDate = currentExpiry && new Date(currentExpiry) > new Date(paymentDate) ? new Date(currentExpiry) : new Date(paymentDate);
     return addMonths(baseDate, duration);
@@ -154,12 +202,26 @@ export default function Payments() {
                   <Label htmlFor="search-student">Search Student</Label>
                   <Input
                     id="search-student"
-                    placeholder="Search by name or register number..."
+                    placeholder={
+                      selectedStudent
+                        ? "Member selected"
+                        : "Search by name or member ID..."
+                    }
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    disabled={!!selectedStudent}
+                    className={
+                      selectedStudent
+                        ? "bg-muted font-medium text-foreground"
+                        : ""
+                    }
                     data-testid="input-search-student"
                   />
-                  {searchQuery && filteredStudents && filteredStudents.length > 0 && (
+                  {searchQuery &&
+                    (!selectedStudent || searchQuery !== selectedStudent.name) &&
+                    filteredStudents &&
+                    filteredStudents.length > 0 && (
                     <div className="mt-2 border rounded-md max-h-40 overflow-auto">
                       {filteredStudents.slice(0, 5).map((student) => (
                         <button
@@ -247,14 +309,16 @@ export default function Payments() {
                   )}
                 />
 
-                <Button
-                  type="submit"
-                  className="w-full bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 text-white h-11"
-                  disabled={!selectedStudent || paymentMutation.isPending}
-                  data-testid="button-record-payment"
-                >
-                  {paymentMutation.isPending ? "Recording..." : "$  Record Payment"}
-                </Button>
+                {!readOnly && (
+                  <Button
+                    type="submit"
+                    className="w-full bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 text-white h-11"
+                    disabled={!selectedStudent || paymentMutation.isPending}
+                    data-testid="button-record-payment"
+                  >
+                    {paymentMutation.isPending ? "Recording..." : "Record Payment"}
+                  </Button>
+                )}
               </form>
             </Form>
           </CardContent>
@@ -272,10 +336,8 @@ export default function Payments() {
             {selectedStudent ? (
               <div className="space-y-3">
                 <div className="p-3 bg-muted rounded-md">
-                  <p className="text-xs text-muted-foreground">Token Number</p>
-                  <p className="text-2xl font-bold text-orange-600 dark:text-orange-500">
-                    {tokenNumber ?? "#-"}
-                  </p>
+                  <p className="text-xs text-muted-foreground">Member ID</p>
+                  <p className="font-bold text-lg">{selectedStudent.registerNo}</p>
                 </div>
 
                 <div className="p-3 bg-muted rounded-md">
@@ -284,19 +346,23 @@ export default function Payments() {
                 </div>
 
                 <div className="p-3 bg-muted rounded-md">
-                  <p className="text-xs text-muted-foreground">Register Number</p>
-                  <p className="font-bold text-lg">{selectedStudent.registerNo}</p>
+                  <p className="text-xs text-muted-foreground">Token Number</p>
+                  <p className="text-lg font-bold text-orange-600 dark:text-orange-500">
+                    {tokenNumber ?? "#-"}
+                  </p>
                 </div>
 
                 {form.watch("duration") > 0 && form.watch("date") && (
                   <div className="p-4 bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-md">
                     <p className="text-xs text-green-700 dark:text-green-400 font-medium mb-1">Membership Expiry Date</p>
                     <p className="font-bold text-lg text-green-900 dark:text-green-300">
-                      {getNewExpiryDate(form.watch("date"), form.watch("duration"), selectedStudent.expiryDate).toLocaleDateString("en-GB", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric"
-                      }).replace(/ /g, "-")}
+                      {formatDate(
+                        getNewExpiryDate(
+                          form.watch("date"),
+                          form.watch("duration"),
+                          selectedStudent.expiryDate
+                        )
+                      )}
                     </p>
                     <p className="text-xs text-green-700 dark:text-green-400 mt-1">
                       {form.watch("duration") === 1

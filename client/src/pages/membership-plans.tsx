@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import type { MembershipPlan } from "@shared/schema";
+import { useReadOnly } from "@/lib/read-only";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -48,12 +49,9 @@ const planFormSchema = z.object({
 
 type PlanFormValues = z.infer<typeof planFormSchema>;
 
-// Icon colours cycle through the plan list: green → blue → amber.
-const TILE_STYLES = [
-  { tile: "bg-green-100 dark:bg-green-950/40", icon: "text-green-600" },
-  { tile: "bg-blue-100 dark:bg-blue-950/40", icon: "text-blue-600" },
-  { tile: "bg-amber-100 dark:bg-amber-950/40", icon: "text-amber-600" },
-];
+// Every plan tile uses the same brand tint so the list reads as one set.
+const TILE_TILE_CLASS = "flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg bg-primary/10";
+const TILE_ICON_CLASS = "h-5 w-5 text-primary";
 
 function durationLabel(months: number): string {
   if (months === 12) return "1 Year";
@@ -61,11 +59,13 @@ function durationLabel(months: number): string {
   return months === 1 ? "1 Month" : `${months} Months`;
 }
 
-export default function MembershipPlans() {
+export default function MembershipPlans({ isAdmin }: { isAdmin: boolean }) {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<MembershipPlan | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+  // Admin viewing this vendor's panel in Read Only mode — plans are untouchable.
+  const readOnly = useReadOnly();
 
   const { data: plans, isLoading } = useQuery<MembershipPlan[]>({
     queryKey: ["/api/membership-plans"],
@@ -135,8 +135,8 @@ export default function MembershipPlans() {
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-green-100 dark:bg-green-950/40">
-            <Crown className="h-6 w-6 text-green-600" />
+          <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <Crown className="h-6 w-6 text-primary" />
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -149,14 +149,16 @@ export default function MembershipPlans() {
           </div>
         </div>
 
-        <Button
-          onClick={openAdd}
-          className="bg-green-600 hover:bg-green-700 text-white gap-2 shrink-0"
-          data-testid="button-add-plan"
-        >
-          <Plus className="h-4 w-4" />
-          Add Membership Plan
-        </Button>
+        {!readOnly && (
+          <Button
+            onClick={openAdd}
+            className="gap-2 shrink-0"
+            data-testid="button-add-plan"
+          >
+            <Plus className="h-4 w-4" />
+            Add Membership Plan
+          </Button>
+        )}
       </div>
 
       {/* Plan list */}
@@ -168,8 +170,7 @@ export default function MembershipPlans() {
         </div>
       ) : plans && plans.length > 0 ? (
         <div className="space-y-4">
-          {plans.map((plan, index) => {
-            const style = TILE_STYLES[index % TILE_STYLES.length];
+          {plans.map((plan) => {
             return (
               <div
                 key={plan.id}
@@ -177,10 +178,8 @@ export default function MembershipPlans() {
                 data-testid={`plan-row-${plan.id}`}
               >
                 <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div
-                    className={`flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg ${style.tile}`}
-                  >
-                    <Calendar className={`h-5 w-5 ${style.icon}`} />
+                  <div className={TILE_TILE_CLASS}>
+                    <Calendar className={TILE_ICON_CLASS} />
                   </div>
                   <div className="min-w-0">
                     <p className="font-bold text-lg text-foreground truncate">
@@ -207,35 +206,34 @@ export default function MembershipPlans() {
                 </div>
 
                 <div className="flex items-center gap-2 sm:ml-auto">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5 bg-slate-100 border-0 text-slate-700 hover:bg-slate-200"
-                    onClick={() => openEdit(plan)}
-                    data-testid={`button-edit-plan-${plan.id}`}
-                  >
-                    <Pencil className="h-4 w-4" />
-                    Edit
-                  </Button>
-                  <Button
-                    size="sm"
-                    className={`gap-1.5 ${
-                      confirmDeleteId === plan.id
-                        ? "bg-red-600 text-white hover:bg-red-700"
-                        : "bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-950/30"
-                    }`}
-                    onClick={() => {
-                      if (confirmDeleteId === plan.id) {
-                        deleteMutation.mutate(plan.id);
-                      } else {
-                        setConfirmDeleteId(plan.id);
-                      }
-                    }}
-                    data-testid={`button-delete-plan-${plan.id}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {confirmDeleteId === plan.id ? "Confirm?" : "Delete"}
-                  </Button>
+                  {!readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEdit(plan)}
+                      title="Edit membership plan"
+                      data-testid={`button-edit-plan-${plan.id}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  )}
+                  {isAdmin && !readOnly && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        if (confirmDeleteId === plan.id) {
+                          deleteMutation.mutate(plan.id);
+                        } else {
+                          setConfirmDeleteId(plan.id);
+                        }
+                      }}
+                      title={confirmDeleteId === plan.id ? "Confirm delete membership plan" : "Delete membership plan"}
+                      data-testid={`button-delete-plan-${plan.id}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  )}
                 </div>
               </div>
             );
@@ -245,13 +243,15 @@ export default function MembershipPlans() {
         <div className="rounded-xl border bg-card p-12 text-center text-muted-foreground">
           <Calendar className="h-10 w-10 mx-auto mb-3 opacity-20" />
           <p>No membership plans yet.</p>
-          <Button
-            onClick={openAdd}
-            className="mt-4 bg-green-600 hover:bg-green-700 text-white gap-2"
-          >
-            <Plus className="h-4 w-4" />
-            Add Membership Plan
-          </Button>
+          {!readOnly && (
+            <Button
+              onClick={openAdd}
+              className="mt-4 gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add Membership Plan
+            </Button>
+          )}
         </div>
       )}
 
@@ -356,7 +356,6 @@ export default function MembershipPlans() {
                 <Button
                   type="submit"
                   disabled={saveMutation.isPending}
-                  className="bg-green-600 hover:bg-green-700 text-white"
                   data-testid="button-submit-plan"
                 >
                   {saveMutation.isPending

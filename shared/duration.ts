@@ -19,6 +19,50 @@ export function formatDuration(duration: number): string {
 }
 
 /**
+ * Calendar date (`YYYY-MM-DD`) for a stored date value.
+ *
+ * Date strings coming out of Postgres (`date` columns) are used as-is so the
+ * stored calendar date is never shifted by the viewer's timezone; Date objects
+ * fall back to their *local* date parts.
+ */
+export function toDateOnly(value: string | Date): string {
+  if (typeof value !== "string") {
+    const y = value.getFullYear();
+    const m = String(value.getMonth() + 1).padStart(2, "0");
+    const d = String(value.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  // Date-only strings (`YYYY-MM-DD`) come straight from Postgres `date`
+  // columns — keep them byte-for-byte so the timezone never shifts the day.
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+  const parsed = new Date(trimmed);
+  return Number.isNaN(parsed.getTime()) ? "" : toDateOnly(parsed);
+}
+
+/**
+ * Single source of truth for "is this membership expired?" — used by the
+ * dashboard list, the dashboard stats and the attendance pad so they can never
+ * disagree with each other again.
+ *
+ * - No expiry date → never renewed → expired (the attendance endpoint and the
+ *   dashboard stats have always treated it this way).
+ * - Otherwise the member is expired on/after the expiry date, which is the
+ *   same rule the attendance pad uses (`daysLeft <= 0`).
+ */
+export function isMembershipExpired(
+  expiryDate: string | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!expiryDate) return true;
+  const expiry = toDateOnly(expiryDate);
+  if (!expiry) return true;
+  return expiry <= toDateOnly(now);
+}
+
+/**
  * Work out the price for a membership of `months` months from the vendor's
  * configured plans (Membership Plans tab).
  *

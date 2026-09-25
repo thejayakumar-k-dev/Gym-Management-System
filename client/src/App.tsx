@@ -27,15 +27,18 @@ import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 import AdminPanel from "@/pages/admin";
 import { GymNameContext } from "@/lib/gym-name";
+import { ReadOnlyContext, setReadOnlyMode } from "@/lib/read-only";
 
-function Router() {
+const AUTH_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+function Router({ isAdmin }: { isAdmin: boolean }) {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
-      <Route path="/students" component={Students} />
+      <Route path="/students" component={() => <Students isAdmin={isAdmin} />} />
       <Route path="/payments" component={Payments} />
-      <Route path="/membership-plans" component={MembershipPlans} />
-      <Route path="/modify-payments" component={ModifyPayments} />
+      <Route path="/membership-plans" component={() => <MembershipPlans isAdmin={isAdmin} />} />
+      <Route path="/modify-payments" component={() => <ModifyPayments isAdmin={isAdmin} />} />
       <Route path="/income-dashboard" component={IncomeDashboard} />
       <Route path="/payment-history" component={PaymentHistory} />
       <Route path="/attendance-history" component={AttendanceHistory} />
@@ -54,6 +57,9 @@ function AuthenticatedApp({
   onLogout: () => void;
 }) {
   const [location, setLocation] = useLocation();
+  // Admin viewing a vendor panel can flip between Edit and Read Only via the
+  // header toggle. A vendor logging into their own gym is never affected.
+  const [readOnly, setReadOnly] = useState(false);
   const isAdmin = isAdminUser(user);
 
   // Check if admin is currently viewing as a vendor (from URL /vendors/:id or sessionStorage)
@@ -75,6 +81,15 @@ function AuthenticatedApp({
     }
   }, [location, setLocation]);
 
+  const inVendorPanel = isAdmin && !!impersonatedVendorId;
+
+  // Keep the module-level flag (checked by apiRequest) in sync so every write
+  // is blocked while Read Only is on, and cleared when we leave the panel.
+  useEffect(() => {
+    setReadOnlyMode(inVendorPanel && readOnly);
+    return () => setReadOnlyMode(false);
+  }, [inVendorPanel, readOnly]);
+
   const { data: activeVendor } = useQuery<Vendor>({
     queryKey: ["/api/vendors", impersonatedVendorId],
     enabled: !!impersonatedVendorId && isAdmin,
@@ -94,6 +109,7 @@ function AuthenticatedApp({
 
   const handleExitVendorMode = () => {
     sessionStorage.removeItem("admin_active_vendor_id");
+    setReadOnly(false);
     setImpersonatedVendorId(null);
     setLocation("/admin/vendors");
   };
@@ -128,6 +144,7 @@ function AuthenticatedApp({
   return (
     <ThemeProvider defaultTheme="light">
       <GymNameContext.Provider value={vendorDisplayName ?? "GymDesk"}>
+        <ReadOnlyContext.Provider value={inVendorPanel && readOnly}>
 <TooltipProvider>
           <SidebarProvider style={style as React.CSSProperties}>
             <div className="flex h-dvh w-full">
@@ -158,21 +175,55 @@ function AuthenticatedApp({
                   </div>
 
                   {isAdmin && impersonatedVendorId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleExitVendorMode}
-                      className="h-8 text-xs border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 font-medium gap-1.5 shrink-0"
-                      data-testid="button-exit-vendor-mode"
-                    >
-                      <ArrowLeft className="h-3.5 w-3.5" />
-                      <span>Return to Admin</span>
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted p-1"
+                        role="group"
+                        aria-label="Vendor panel access mode"
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={!readOnly}
+                          onClick={() => setReadOnly(false)}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            !readOnly
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          data-testid="button-mode-edit"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={readOnly}
+                          onClick={() => setReadOnly(true)}
+                          className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                            readOnly
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                          data-testid="button-mode-readonly"
+                        >
+                          Read Only
+                        </button>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleExitVendorMode}
+                        className="h-8 text-xs border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 font-medium gap-1.5 shrink-0"
+                        data-testid="button-exit-vendor-mode"
+                      >
+                        <ArrowLeft className="h-3.5 w-3.5" />
+                        <span>Return to Admin</span>
+                      </Button>
+                    </div>
                   )}
                 </header>
                 <main className="flex-1 overflow-auto p-4 sm:p-6 bg-background">
                   <div className="max-w-7xl mx-auto">
-                    <Router />
+                    <Router isAdmin={isAdmin} />
                   </div>
                 </main>
               </div>
@@ -180,6 +231,7 @@ function AuthenticatedApp({
           </SidebarProvider>
           <Toaster />
         </TooltipProvider>
+        </ReadOnlyContext.Provider>
       </GymNameContext.Provider>
     </ThemeProvider>
   );
@@ -198,6 +250,16 @@ function App() {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const timeout = window.setTimeout(() => {
+      void signOut();
+    }, AUTH_SESSION_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [user]);
 
   if (authLoading) {
     return (

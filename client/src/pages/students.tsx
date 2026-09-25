@@ -23,18 +23,38 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Users, LogIn, AlertCircle, CheckCircle } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, AlertCircle, CheckCircle, Search, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Student } from "@shared/schema";
+import type { MemberBatch, Student } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertStudentSchema, NAME_REGEX, PHONE_REGEX } from "@shared/schema";
+import { isMembershipExpired } from "@shared/duration";
+import { formatDate } from "@/lib/format";
+import { useReadOnly } from "@/lib/read-only";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-const formSchema = insertStudentSchema.omit({ registerNo: true });
+const formSchema = insertStudentSchema;
 
 type FormValues = z.infer<typeof formSchema>;
+
+const MEMBER_FILTERS = [
+  { value: "all", label: "All" },
+  { value: "active", label: "Active" },
+  { value: "expired", label: "Expired" },
+  { value: "morning", label: "Morning" },
+  { value: "evening", label: "Evening" },
+] as const;
+
+type MemberFilter = (typeof MEMBER_FILTERS)[number]["value"];
 
 type AttendanceFeedback = {
   type: "success" | "already_marked" | "expired" | "not_found";
@@ -47,10 +67,14 @@ type AttendanceFeedback = {
   };
 } | null;
 
-export default function Students() {
+export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  // Admin viewing this vendor's panel in Read Only mode — no adds or edits.
+  const readOnly = useReadOnly();
   const [attendanceFeedback, setAttendanceFeedback] = useState<AttendanceFeedback>(null);
   const { toast } = useToast();
 
@@ -58,7 +82,33 @@ export default function Students() {
     queryKey: ["/api/students"],
   });
 
-  const students = studentsData ? [...studentsData].reverse() : undefined;
+  const students = useMemo(
+    () => (studentsData ? [...studentsData].reverse() : undefined),
+    [studentsData],
+  );
+
+  const filteredStudents = useMemo(() => {
+    if (!students) return students;
+
+    const query = searchQuery.trim().toLowerCase();
+    const searchedStudents = query
+      ? students.filter(
+          (student) =>
+            student.registerNo.toLowerCase().includes(query) ||
+            student.name.toLowerCase().includes(query) ||
+            student.phone.toLowerCase().includes(query),
+        )
+      : students;
+
+    if (memberFilter === "all") return searchedStudents;
+    if (memberFilter === "morning" || memberFilter === "evening") {
+      return searchedStudents.filter((student) => student.batch === memberFilter);
+    }
+    const wantActive = memberFilter === "active";
+    return searchedStudents.filter(
+      (student) => !isMembershipExpired(student.expiryDate) === wantActive,
+    );
+  }, [students, memberFilter, searchQuery]);
 
   const nextRegisterNo = useMemo(() => {
     if (!studentsData || studentsData.length === 0) return "1";
@@ -72,7 +122,9 @@ export default function Students() {
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      registerNo: "",
       name: "",
+      batch: "morning",
       phone: "",
       address: "",
       joinDate: new Date().toISOString().split("T")[0],
@@ -88,15 +140,26 @@ export default function Students() {
       setIsDialogOpen(false);
       form.reset();
     },
-    onError: () => {
-      toast({ title: "Failed to add student", variant: "destructive" });
+    onError: (error: any) => {
+      const duplicate = String(error?.message || "").includes("Member ID already exists");
+      if (duplicate) {
+        form.setError("registerNo", { type: "manual", message: "Member ID already exists" });
+      }
+      toast({ title: duplicate ? "Member ID already exists" : "Failed to add student", variant: "destructive" });
     },
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, ...data }: FormValues & { id: number }) =>
-      apiRequest("PATCH", `/api/students/${id}`, data),
-    onSuccess: () => {
+    mutationFn: async ({ id, ...data }: FormValues & { id: number }) => {
+      const response = await apiRequest("PATCH", `/api/students/${id}`, data);
+      return (await response.json()) as Student;
+    },
+    onSuccess: (updatedStudent) => {
+      queryClient.setQueryData<Student[]>(["/api/students"], (currentStudents) =>
+        currentStudents?.map((student) =>
+          student.id === updatedStudent.id ? updatedStudent : student,
+        ),
+      );
       queryClient.invalidateQueries({ queryKey: ["/api/students"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
       toast({ title: "Student updated successfully" });
@@ -104,8 +167,12 @@ export default function Students() {
       setEditingStudent(null);
       form.reset();
     },
-    onError: () => {
-      toast({ title: "Failed to update student", variant: "destructive" });
+    onError: (error: any) => {
+      const duplicate = String(error?.message || "").includes("Member ID already exists");
+      if (duplicate) {
+        form.setError("registerNo", { type: "manual", message: "Member ID already exists" });
+      }
+      toast({ title: duplicate ? "Member ID already exists" : "Failed to update student", variant: "destructive" });
     },
   });
 
@@ -175,7 +242,9 @@ export default function Students() {
     if (student) {
       setEditingStudent(student);
       form.reset({
+        registerNo: student.registerNo,
         name: student.name,
+        batch: student.batch,
         phone: student.phone,
         address: student.address || "",
         joinDate: student.joinDate,
@@ -183,7 +252,9 @@ export default function Students() {
     } else {
       setEditingStudent(null);
       form.reset({
+        registerNo: nextRegisterNo,
         name: "",
+        batch: "morning",
         phone: "",
         address: "",
         joinDate: new Date().toISOString().split("T")[0],
@@ -193,22 +264,35 @@ export default function Students() {
   };
 
   const onSubmit = (data: FormValues) => {
+    const registerNo = data.registerNo.trim();
+    const duplicate = studentsData?.some(
+      (student) =>
+        student.registerNo === registerNo && student.id !== editingStudent?.id,
+    );
+
+    if (duplicate) {
+      form.setError("registerNo", {
+        type: "manual",
+        message: "Member ID already exists",
+      });
+      return;
+    }
+
+    const formData = { ...data, registerNo };
     if (editingStudent) {
-      updateMutation.mutate({ ...data, id: editingStudent.id });
+      updateMutation.mutate({ ...formData, id: editingStudent.id });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(formData);
     }
   };
 
   const getStatus = (expiryDate: string | null) => {
     if (!expiryDate) return "Pay Required";
-    const today = new Date();
-    const expiry = new Date(expiryDate);
-    if (expiry < today) return "Expired";
-    const diff = Math.ceil((expiry.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    if (diff <= 0) return "Pay Required";
-    return "Active";
+    return isMembershipExpired(expiryDate) ? "Expired" : "Active";
   };
+
+  const getBatchLabel = (batch: MemberBatch) =>
+    batch === "evening" ? "Evening" : "Morning";
 
   const getDaysLeft = (expiryDate: string | null) => {
     if (!expiryDate) return 0;
@@ -218,11 +302,6 @@ export default function Students() {
     return Math.max(0, diff);
   };
 
-  const canCheckIn = (expiryDate: string | null) => {
-    const daysLeft = getDaysLeft(expiryDate);
-    return daysLeft > 0;
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -230,18 +309,65 @@ export default function Students() {
           <h1 className="text-2xl font-semibold text-foreground">Students</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage gym members</p>
         </div>
-        <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto" data-testid="button-add-student">
-          <Plus className="mr-2 h-4 w-4" />
-          Add Student
-        </Button>
+        {!readOnly && (
+          <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto" data-testid="button-add-student">
+            <Plus className="mr-2 h-4 w-4" />
+            Add Student
+          </Button>
+        )}
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Members List</CardTitle>
-          <CardDescription>View and manage all gym members</CardDescription>
+        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+          <div className="min-w-0">
+            <CardTitle>Members List</CardTitle>
+            <CardDescription>View and manage all gym members</CardDescription>
+          </div>
+          <div
+            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted p-1"
+            role="tablist"
+            aria-label="Filter members by membership or batch"
+          >
+            {MEMBER_FILTERS.map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                role="tab"
+                aria-selected={memberFilter === filter.value}
+                onClick={() => setMemberFilter(filter.value)}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  memberFilter === filter.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                data-testid={`filter-${filter.value}`}
+              >
+                {filter.label}
+              </button>
+            ))}
+          </div>
         </CardHeader>
         <CardContent>
+          <div className="relative mb-4 w-full sm:max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search by Member ID, name or phone"
+              className="pl-9 pr-9"
+              data-testid="input-search-members"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                aria-label="Clear member search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           {isLoading ? (
             <div className="space-y-3">
               {[...Array(5)].map((_, i) => (
@@ -249,30 +375,44 @@ export default function Students() {
               ))}
             </div>
           ) : students && students.length > 0 ? (
-            <div className="rounded-md border">
-              <Table className="min-w-[900px]">
+            filteredStudents && filteredStudents.length > 0 ? (
+              <div className="rounded-md border">
+                <Table className="min-w-[1000px]">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Register No.</TableHead>
+                    <TableHead>Member ID</TableHead>
                     <TableHead>Name</TableHead>
+                    <TableHead>Batch</TableHead>
                     <TableHead>Phone</TableHead>
                     <TableHead>Address</TableHead>
                     <TableHead>Join Date</TableHead>
                     <TableHead>Expiry Date</TableHead>
                     <TableHead>Days Left</TableHead>
                     <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {!readOnly && <TableHead className="text-right">Actions</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {students.map((student) => (
+                  {filteredStudents.map((student) => (
                     <TableRow key={student.id} data-testid={`row-student-${student.id}`}>
                       <TableCell className="font-medium">{student.registerNo}</TableCell>
                       <TableCell>{student.name}</TableCell>
+                      <TableCell>
+                        <Badge
+                          variant="secondary"
+                          className={
+                            student.batch === "morning"
+                              ? "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                              : "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300"
+                          }
+                        >
+                          {getBatchLabel(student.batch)}
+                        </Badge>
+                      </TableCell>
                       <TableCell>{student.phone}</TableCell>
                       <TableCell>{student.address || "-"}</TableCell>
-                      <TableCell>{new Date(student.joinDate).toLocaleDateString()}</TableCell>
-                      <TableCell>{student.expiryDate ? new Date(student.expiryDate).toLocaleDateString() : "-"}</TableCell>
+                      <TableCell>{formatDate(student.joinDate)}</TableCell>
+                      <TableCell>{formatDate(student.expiryDate)}</TableCell>
                       <TableCell className={getStatus(student.expiryDate) === "Active" ? "text-green-600 dark:text-green-400 font-medium" : getStatus(student.expiryDate) === "Pay Required" ? "text-orange-600 dark:text-orange-400 font-medium" : "text-red-600 dark:text-red-400 font-medium"}>
                         Days: {getDaysLeft(student.expiryDate)}
                       </TableCell>
@@ -285,41 +425,47 @@ export default function Students() {
                           {getStatus(student.expiryDate)}
                         </Badge>
                       </TableCell>
+                      {!readOnly && (
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => attendanceMutation.mutate(student.registerNo)}
-                            disabled={attendanceMutation.isPending || !canCheckIn(student.expiryDate)}
-                            title={!canCheckIn(student.expiryDate) ? "Payment required to check in" : "Check in student"}
-                            data-testid={`button-attendance-${student.id}`}
-                          >
-                            <LogIn className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenDialog(student)}
-                            data-testid={`button-edit-${student.id}`}
-                          >
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setDeleteConfirmId(student.id)}
-                            data-testid={`button-delete-${student.id}`}
-                          >
-                            <Trash2 className="h-4 w-4 text-destructive" />
-                          </Button>
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenDialog(student)}
+                              data-testid={`button-edit-${student.id}`}
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {isAdmin && !readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setDeleteConfirmId(student.id)}
+                              data-testid={`button-delete-${student.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
+                      )}
                     </TableRow>
                   ))}
                 </TableBody>
-              </Table>
-            </div>
+                </Table>
+              </div>
+            ) : (
+              <div className="text-center py-12 text-muted-foreground">
+                <Users className="h-12 w-12 mx-auto mb-4 opacity-20" />
+                <p>
+                  {searchQuery.trim()
+                    ? "No members match your search."
+                    : `No ${MEMBER_FILTERS.find((filter) => filter.value === memberFilter)?.label.toLowerCase()} members found.`}
+                </p>
+              </div>
+            )
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <Users className="h-12 w-12 mx-auto mb-4 opacity-20" />
@@ -340,14 +486,27 @@ export default function Students() {
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Register Number</label>
-                <Input
-                  value={isLoading ? "..." : editingStudent ? editingStudent.registerNo : nextRegisterNo}
-                  disabled
-                  className="bg-muted text-muted-foreground"
-                />
-              </div>
+              <FormField
+                control={form.control}
+                name="registerNo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Member ID <span className="text-red-500">*</span></FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        inputMode="numeric"
+                        onChange={(event) => {
+                          field.onChange(event.target.value.replace(/\D/g, ""));
+                          form.clearErrors("registerNo");
+                        }}
+                        data-testid="input-register-no"
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}
@@ -358,6 +517,27 @@ export default function Students() {
                     <FormControl>
                       <Input {...field} data-testid="input-name" />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="batch"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Batch <span className="text-red-500">*</span></FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger data-testid="select-batch">
+                          <SelectValue placeholder="Select batch" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="morning">Morning</SelectItem>
+                        <SelectItem value="evening">Evening</SelectItem>
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}

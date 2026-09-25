@@ -13,11 +13,16 @@ export const ADDRESS_REGEX =
   /^[A-Za-z0-9][A-Za-z0-9 ,.#'\/()\-]*$/; // no special symbols
 
 
+export const MEMBER_BATCHES = ["morning", "evening"] as const;
+export const memberBatchSchema = z.enum(MEMBER_BATCHES);
+export type MemberBatch = z.infer<typeof memberBatchSchema>;
+
 // Students table
 export const students = pgTable("students", {
   id: serial("id").primaryKey(),
   registerNo: varchar("register_no", { length: 50 }).notNull().unique(),
   name: text("name").notNull(),
+  batch: varchar("batch", { length: 10 }).$type<MemberBatch>().notNull().default("morning"),
   phone: varchar("phone", { length: 20 }).notNull(),
   address: text("address").notNull().default(""),
   joinDate: date("join_date").notNull(),
@@ -32,10 +37,16 @@ export const insertStudentSchema = createInsertSchema(students)
     expiryDate: true,
   })
   .extend({
+    registerNo: z
+      .string()
+      .trim()
+      .min(1, "Member ID is required")
+      .regex(/^\d+$/, "Member ID must contain only numbers"),
     name: z
       .string()
       .min(1, "Name is required")
       .regex(NAME_REGEX, "Name cannot contain special characters"),
+    batch: memberBatchSchema.default("morning"),
     phone: z
       .string()
       .regex(PHONE_REGEX, "Phone number must be exactly 10 digits"),

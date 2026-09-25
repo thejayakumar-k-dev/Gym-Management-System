@@ -6,6 +6,15 @@ import { getDb, type DrizzleDB } from "./db.js";
 import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, insertMembershipPlanSchema } from "../shared/schema.js";
 import { addMonths } from "../shared/duration.js";
 
+function isAdminRequest(req: Request): boolean {
+  const adminUid = process.env.VITE_ADMIN_UID || process.env.ADMIN_UID;
+  return Boolean(adminUid && (req as any).auth?.user?.id === adminUid);
+}
+
+function isUniqueViolation(error: any): boolean {
+  return error?.code === "23505" || error?.cause?.code === "23505";
+}
+
 /**
  * Resolves which database a request should read/write from.
  *
@@ -79,22 +88,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/students", async (req, res) => {
     try {
-      const validatedData = insertStudentSchema.omit({ registerNo: true }).parse(req.body);
+      const validatedData = insertStudentSchema.parse(req.body);
+      const registerNo = validatedData.registerNo.trim();
       const vdb = await resolveVendorDb(req);
+      const existingStudent = await storage.getStudentByRegisterNo(registerNo, vdb);
 
-      // Auto-generate sequential register number: 1, 2, 3, ...
-      const allStudents = await storage.getStudents(vdb);
-      const maxNum = allStudents.reduce((max, s) => {
-        const n = parseInt(s.registerNo, 10);
-        return Number.isFinite(n) && n > max ? n : max;
-      }, 0);
-      const registerNo = String(maxNum + 1);
+      if (existingStudent) {
+        return res.status(409).json({ error: "Member ID already exists" });
+      }
 
       const student = await storage.createStudent({ ...validatedData, registerNo }, vdb);
       res.status(201).json(student);
     } catch (error: any) {
-      if (error.name === "ZodError") {
+      if (error?.name === "ZodError") {
         return res.status(400).json({ error: "Invalid student data", details: error.errors });
+      }
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Member ID already exists" });
       }
       res.status(500).json({ error: "Failed to create student" });
     }
@@ -109,9 +119,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Student not found" });
       }
 
+      const validatedData = insertStudentSchema.partial().parse(req.body);
+      if (validatedData.registerNo !== undefined) {
+        const registerNo = validatedData.registerNo.trim();
+        const existingStudent = await storage.getStudentByRegisterNo(registerNo, vdb);
+        if (existingStudent && existingStudent.id !== id) {
+          return res.status(409).json({ error: "Member ID already exists" });
+        }
+        validatedData.registerNo = registerNo;
+      }
+
       const updatedStudent = await storage.updateStudent(
         id,
-        insertStudentSchema.partial().parse(req.body),
+        {
+          ...validatedData,
+          batch: validatedData.batch ?? student.batch,
+        },
         vdb
       );
       res.json(updatedStudent);
@@ -119,12 +142,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (error?.name === "ZodError") {
         return res.status(400).json({ error: "Invalid student data", details: error.errors });
       }
+      if (isUniqueViolation(error)) {
+        return res.status(409).json({ error: "Member ID already exists" });
+      }
       res.status(500).json({ error: "Failed to update student" });
     }
   });
 
   app.delete("/api/students/:id", async (req, res) => {
     try {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: "Only admins can delete students" });
+      }
       const id = parseInt(req.params.id);
       const vdb = await resolveVendorDb(req);
       const student = await storage.getStudentById(id, vdb);
@@ -507,9 +536,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Membership plans — plan prices used to auto-calculate payment amounts.
-  const isUniqueViolation = (error: any) =>
-    error?.code === "23505" || error?.cause?.code === "23505";
-
   app.get("/api/membership-plans", async (req, res) => {
     try {
       const plans = await storage.getMembershipPlans(await resolveVendorDb(req));
@@ -578,6 +604,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/membership-plans/:id", async (req, res) => {
     try {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: "Only admins can delete membership plans" });
+      }
       const id = parseInt(req.params.id);
       if (Number.isNaN(id)) {
         return res.status(400).json({ error: "Invalid plan id" });
@@ -654,6 +683,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/payments/:id", async (req, res) => {
     try {
+      if (!isAdminRequest(req)) {
+        return res.status(403).json({ error: "Only admins can delete payments" });
+      }
       const id = parseInt(req.params.id);
       const vdb = await resolveVendorDb(req);
       const payment = await storage.getPaymentById(id, vdb);
@@ -699,7 +731,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!registerNumber || registerNumber === "") {
         return res.status(400).json({ 
           type: "error",
-          message: "Register number is required",
+          message: "Member ID is required",
           student: null,
           daysLeft: 0,
           isExpired: false
@@ -708,6 +740,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Convert to string for database lookup
       const registerNoString = String(registerNumber).trim();
+      if (!/^\d+$/.test(registerNoString)) {
+        return res.status(400).json({
+          type: "error",
+          message: "Member ID must contain only numbers",
+          student: null,
+          daysLeft: 0,
+          isExpired: false
+        });
+      }
 
       // Step 1: Check if student exists
       const student = await storage.getStudentByRegisterNo(registerNoString, vdb);

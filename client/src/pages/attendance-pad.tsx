@@ -4,7 +4,7 @@ import { queryClient } from "@/lib/queryClient";
 import { authHeaders } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Delete, CheckCircle, AlertCircle, Maximize, Minimize } from "lucide-react";
+import { CheckCircle, AlertCircle, Maximize, Minimize } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 
@@ -81,7 +81,7 @@ export default function AttendancePad() {
     mutationFn: async (regNo: string) => {
       const trimmedRegNo = regNo.trim();
       if (!trimmedRegNo) {
-        throw new Error(JSON.stringify({ type: "error", error: "Register number is required" }));
+        throw new Error(JSON.stringify({ type: "error", error: "Member ID is required" }));
       }
 
       const response = await fetch("/api/attendance", {
@@ -127,12 +127,6 @@ export default function AttendancePad() {
 
   const handleNumberClick = (num: string) => {
     setRegisterNumber((prev) => prev + num);
-    setAlert(null);
-    setError(null);
-  };
-
-  const handleClearLast = () => {
-    setRegisterNumber((prev) => prev.slice(0, -1));
     setAlert(null);
     setError(null);
   };
@@ -194,7 +188,7 @@ export default function AttendancePad() {
         <div className="w-full max-w-md space-y-6">
           <div className="text-center relative">
             <h1 className="text-4xl font-bold text-white mb-2">Attendance</h1>
-            <p className="text-slate-400">Enter your register number</p>
+            <p className="text-slate-400">Enter your member ID</p>
           </div>
 
           <Card className="bg-slate-800 border-slate-700">
@@ -245,7 +239,7 @@ export default function AttendancePad() {
             )}
           </Button>
           <h1 className="text-4xl font-bold text-white mb-2">Attendance</h1>
-          <p className="text-slate-400">Enter your register number</p>
+          <p className="text-slate-400">Enter your member ID</p>
         </div>
 
         {/* Display */}
@@ -275,12 +269,12 @@ export default function AttendancePad() {
             {/* Details */}
             {alert.type === "error" && alert.enteredRegisterNumber ? (
               <div className="text-sm text-slate-300 ml-7">
-                <p>Register Number: {alert.enteredRegisterNumber}</p>
+                <p>Member ID: {alert.enteredRegisterNumber}</p>
               </div>
             ) : alert.student ? (
               <div className="text-sm text-slate-300 ml-7 space-y-1">
                 <p>Name: {alert.student.name}</p>
-                <p>Date: {format(new Date(), "MMMM d, yyyy")}</p>
+                <p>Date: {format(new Date(), "d MMMM yyyy")}</p>
                 {alert.type === "success" && <p>Time In: {format(new Date(), "h:mm a")}</p>}
                 <p>Days Left: <span className={!alert.isExpired ? "text-green-400" : "text-red-400"}>{alert.daysLeft} days</span></p>
                 <p>Status: <span className={!alert.isExpired ? "text-green-400" : "text-red-400"}>{alert.isExpired ? "EXPIRED" : "ACTIVE"}</span></p>
@@ -302,27 +296,6 @@ export default function AttendancePad() {
               {num}
             </Button>
           ))}
-        </div>
-
-        {/* Action Buttons */}
-        <div className="grid grid-cols-2 gap-3">
-          <Button
-            onClick={handleClearLast}
-            className="h-16 text-lg font-medium bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50"
-            disabled={loading}
-            data-testid="button-clear-last"
-          >
-            <Delete className="w-5 h-5 mr-2" />
-            Clear Last
-          </Button>
-          <Button
-            onClick={handleClearAll}
-            className="h-16 text-lg font-medium bg-slate-700 hover:bg-slate-600 text-white disabled:opacity-50"
-            disabled={loading}
-            data-testid="button-clear-all"
-          >
-            Clear All
-          </Button>
         </div>
 
         <Button
