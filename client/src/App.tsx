@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Switch, Route, useLocation } from "wouter";
 import { onAuthStateChange, signOut, type AuthUser } from "@/lib/auth";
+import { authReady } from "@/lib/firebase";
 import { isAdminUser } from "@/lib/admin";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider, useQuery } from "@tanstack/react-query";
@@ -260,12 +261,26 @@ function App() {
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    // onAuthStateChange returns the Firebase unsubscribe function
-    const unsubscribe = onAuthStateChange((firebaseUser) => {
-      setUser(firebaseUser);
-      setAuthLoading(false);
-    });
-    return unsubscribe;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
+
+    const subscribe = () => {
+      if (cancelled) return;
+      unsubscribe = onAuthStateChange((firebaseUser) => {
+        if (!firebaseUser) {
+          sessionStorage.removeItem("admin_active_vendor_id");
+        }
+        setUser(firebaseUser);
+        setAuthLoading(false);
+      });
+    };
+
+    void authReady.catch(() => undefined).then(subscribe);
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
+    };
   }, []);
 
   useEffect(() => {

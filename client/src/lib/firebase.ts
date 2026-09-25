@@ -37,7 +37,9 @@ if (import.meta.env.DEV) {
 // Prevent duplicate initialization in HMR environments
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 export const auth = getAuth(app);
-void setPersistence(auth, inMemoryPersistence);
+export const authReady = setPersistence(auth, inMemoryPersistence).then(() =>
+  firebaseSignOut(auth)
+);
 
 export {
   signInWithEmailAndPassword,
