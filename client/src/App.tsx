@@ -30,6 +30,11 @@ import { GymNameContext } from "@/lib/gym-name";
 import { ReadOnlyContext, setReadOnlyMode } from "@/lib/read-only";
 
 const AUTH_SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+const LOGIN_PATH = "/login";
+
+function isAdminPath(path: string): boolean {
+  return path === "/admin" || path.startsWith("/admin/");
+}
 
 function Router({ isAdmin }: { isAdmin: boolean }) {
   return (
@@ -82,6 +87,14 @@ function AuthenticatedApp({
   }, [location, setLocation]);
 
   const inVendorPanel = isAdmin && !!impersonatedVendorId;
+  const adminRoute = isAdminPath(location);
+  const redirectFromAdminRoute = (!isAdmin && adminRoute) || (inVendorPanel && adminRoute);
+
+  useEffect(() => {
+    if (redirectFromAdminRoute) {
+      setLocation("/", { replace: true });
+    }
+  }, [redirectFromAdminRoute, setLocation]);
 
   // Keep the module-level flag (checked by apiRequest) in sync so every write
   // is blocked while Read Only is on, and cleared when we leave the panel.
@@ -107,6 +120,14 @@ function AuthenticatedApp({
     enabled: !!vendorPhone && !isAdmin,
   });
 
+  if (redirectFromAdminRoute) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-gray-50 text-sm text-gray-500">
+        Redirecting...
+      </div>
+    );
+  }
+
   const handleExitVendorMode = () => {
     sessionStorage.removeItem("admin_active_vendor_id");
     setReadOnly(false);
@@ -122,11 +143,6 @@ function AuthenticatedApp({
         <Toaster />
       </>
     );
-  }
-
-  // Non-admins trying to open /admin are blocked.
-  if (!isAdmin && location === "/admin") {
-    return <NotFound />;
   }
 
   const vendorDisplayName =
@@ -239,6 +255,7 @@ function AuthenticatedApp({
 
 function App() {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [location, setLocation] = useLocation();
   // Start as true — Firebase resolves auth state asynchronously on mount
   const [authLoading, setAuthLoading] = useState(true);
 
@@ -250,6 +267,23 @@ function App() {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (authLoading) return;
+
+    if (!user) {
+      if (location !== LOGIN_PATH) {
+        setLocation(LOGIN_PATH, { replace: true });
+      }
+      return;
+    }
+
+    if (location === LOGIN_PATH) {
+      const admin = isAdminUser(user);
+      const activeVendorId = sessionStorage.getItem("admin_active_vendor_id");
+      setLocation(admin && !activeVendorId ? "/admin" : "/", { replace: true });
+    }
+  }, [authLoading, location, setLocation, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -265,6 +299,14 @@ function App() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <div className="text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (user && location === LOGIN_PATH) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-muted-foreground">
+        Redirecting...
       </div>
     );
   }

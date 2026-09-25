@@ -5,6 +5,8 @@
 import { initializeApp, getApps } from "firebase/app";
 import {
   getAuth,
+  setPersistence,
+  inMemoryPersistence,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut as firebaseSignOut,
@@ -35,6 +37,7 @@ if (import.meta.env.DEV) {
 // Prevent duplicate initialization in HMR environments
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 export const auth = getAuth(app);
+void setPersistence(auth, inMemoryPersistence);
 
 export {
   signInWithEmailAndPassword,
