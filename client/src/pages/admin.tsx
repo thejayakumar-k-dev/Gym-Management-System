@@ -10,9 +10,12 @@ import {
   ShieldAlert,
   Store,
   Wallet,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
+import { useTheme } from "@/components/theme-provider";
 import AdminDashboard from "@/pages/admin-dashboard";
 import Vendors from "@/pages/vendors";
 import VendorAccounts from "@/pages/vendor-accounts";
@@ -42,6 +45,9 @@ function SidebarNav({
   onNavigate,
   onLogout,
 }: SidebarNavProps) {
+  const { theme, setTheme } = useTheme();
+  const isDark = theme === "dark";
+
   return (
     <>
       <nav className="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
@@ -51,8 +57,8 @@ function SidebarNav({
             onClick={() => onNavigate(item.url)}
             className={`flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
               location === item.url
-                ? "bg-red-50 text-red-600"
-                : "text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                ? "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             }`}
           >
             <item.icon className="h-5 w-5 shrink-0" />
@@ -61,10 +67,26 @@ function SidebarNav({
         ))}
       </nav>
 
-      <div className="p-3 border-t border-gray-100">
+      <div className="p-3 border-t border-border space-y-1">
+        <button
+          onClick={() => setTheme(isDark ? "light" : "dark")}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground text-sm font-medium transition-colors"
+          aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          aria-pressed={isDark}
+          title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+          data-testid="button-dark-mode"
+        >
+          {isDark ? (
+            <Sun className="h-5 w-5 shrink-0" />
+          ) : (
+            <Moon className="h-5 w-5 shrink-0" />
+          )}
+          {showLabels && <span>{isDark ? "Light Mode" : "Dark Mode"}</span>}
+        </button>
         <button
           onClick={onLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-gray-100 text-gray-500 text-sm font-medium transition-colors"
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground text-sm font-medium transition-colors"
+          data-testid="button-logout"
         >
           <LogOut className="h-5 w-5 shrink-0" />
           {showLabels && <span>Logout</span>}
@@ -103,8 +125,8 @@ export default function AdminPanel() {
 
   if (checking) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-gray-50">
-        <div className="text-gray-500 text-sm">Checking access...</div>
+      <div className="flex min-h-dvh items-center justify-center bg-background">
+        <div className="text-muted-foreground text-sm">Checking access...</div>
       </div>
     );
   }
@@ -112,12 +134,12 @@ export default function AdminPanel() {
   // Only the admin UID may view this panel.
   if (!isAdminUser({ id: userId, email: userEmail })) {
     return (
-      <div className="flex min-h-dvh flex-col items-center justify-center bg-gray-50 gap-4 px-6 text-center">
-        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-red-50">
-          <ShieldAlert className="h-7 w-7 text-red-500" />
+      <div className="flex min-h-dvh flex-col items-center justify-center bg-background gap-4 px-6 text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
+          <ShieldAlert className="h-7 w-7 text-destructive" />
         </div>
-        <h1 className="text-xl font-bold text-gray-900">Access Denied</h1>
-        <p className="text-sm text-gray-500 max-w-sm">
+        <h1 className="text-xl font-bold text-foreground">Access Denied</h1>
+        <p className="text-sm text-muted-foreground max-w-sm">
           You don&apos;t have permission to view the admin panel. Contact the
           administrator if you believe this is a mistake.
         </p>
@@ -129,26 +151,31 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="flex h-dvh bg-gray-50">
+    <div
+      className={`flex h-dvh bg-background ${
+        sidebarOpen ? "md:[--admin-sidebar-w:16rem]" : "md:[--admin-sidebar-w:4rem]"
+      }`}
+    >
       {/* ── Desktop sidebar ── */}
       <aside
         className={`${
           sidebarOpen ? "w-64" : "w-16"
-        } hidden md:flex flex-col bg-white border-r border-gray-200 transition-all duration-300 shrink-0`}
+        } hidden md:flex flex-col bg-sidebar border-r border-sidebar-border transition-all duration-300 shrink-0`}
       >
         {/* Sidebar Header */}
-        <div className="flex items-center justify-between h-16 px-4 border-b border-gray-100">
+        <div className="flex items-center justify-between h-16 px-4 border-b border-sidebar-border">
           {sidebarOpen && (
             <div className="flex items-center gap-2">
-              <Dumbbell className="h-6 w-6 text-red-500" />
-              <span className="text-sm font-bold text-gray-900">
-                Admin <span className="text-red-500">Panel</span>
+              <Dumbbell className="h-6 w-6 text-destructive" />
+              <span className="text-sm font-bold text-sidebar-foreground">
+                Admin <span className="text-destructive">Panel</span>
               </span>
             </div>
           )}
           <button
             onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
+            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
             {sidebarOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
           </button>
@@ -169,17 +196,18 @@ export default function AdminPanel() {
             className="absolute inset-0 bg-black/40"
             onClick={() => setMobileNavOpen(false)}
           />
-          <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[80%] flex-col bg-white border-r border-gray-200 shadow-xl">
-            <div className="flex items-center justify-between h-16 px-4 border-b border-gray-100">
+          <aside className="absolute left-0 top-0 flex h-full w-72 max-w-[80%] flex-col bg-sidebar border-r border-sidebar-border shadow-xl">
+            <div className="flex items-center justify-between h-16 px-4 border-b border-sidebar-border">
               <div className="flex items-center gap-2">
-                <Dumbbell className="h-6 w-6 text-red-500" />
-                <span className="text-sm font-bold text-gray-900">
-                  Admin <span className="text-red-500">Panel</span>
+                <Dumbbell className="h-6 w-6 text-destructive" />
+                <span className="text-sm font-bold text-sidebar-foreground">
+                  Admin <span className="text-destructive">Panel</span>
                 </span>
               </div>
               <button
                 onClick={() => setMobileNavOpen(false)}
-                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 transition-colors"
+                className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
+                aria-label="Close menu"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -197,15 +225,15 @@ export default function AdminPanel() {
       {/* ── Main Content ── */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center gap-3 px-4 sm:px-6 shrink-0">
+        <header className="h-16 bg-card border-b border-border flex items-center gap-3 px-4 sm:px-6 shrink-0">
           <button
             onClick={() => setMobileNavOpen(true)}
-            className="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-gray-100 text-gray-600 transition-colors"
+            className="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-accent text-muted-foreground transition-colors"
             aria-label="Open menu"
           >
             <Menu className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-semibold text-gray-900">
+          <h1 className="text-lg font-semibold text-foreground">
             {pageTitles[location] ?? "Dashboard"}
           </h1>
         </header>

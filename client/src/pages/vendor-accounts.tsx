@@ -51,7 +51,6 @@ import {
   RefreshCw,
   Ban,
   X,
-  ExternalLink,
 } from "lucide-react";
 import type {
   Vendor,
@@ -92,6 +91,7 @@ export default function VendorAccounts() {
   const [addDaysMode, setAddDaysMode] = useState<"days" | "credits">("days");
   const [addDaysForm, setAddDaysForm] = useState<AddDaysFormState>(EMPTY_ADD_DAYS_FORM);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [servicePlanOpen, setServicePlanOpen] = useState(false);
   const [serviceVendorId, setServiceVendorId] = useState<number | null>(null);
   const [serviceForm, setServiceForm] = useState<{
     method: "per_user" | "fixed";
@@ -251,6 +251,7 @@ export default function VendorAccounts() {
       availableDays: number;
       creditDays: number;
       usedCredits: number;
+      lastBillingDate?: string;
     }) => apiRequest("POST", "/api/vendor-accounts", data),
     onSuccess: () => {
       setAddDaysOpen(false);
@@ -274,6 +275,7 @@ export default function VendorAccounts() {
       availableDays: number;
       creditDays: number;
       usedCredits: number;
+      lastBillingDate?: string;
     }) => apiRequest("PATCH", `/api/vendor-accounts/${id}`, data),
     onSuccess: () => {
       setAddDaysOpen(false);
@@ -339,6 +341,12 @@ export default function VendorAccounts() {
 
   const openServicePlan = (vendorId: number) => {
     setServiceVendorId(vendorId);
+    setServicePlanOpen(true);
+  };
+
+  const closeServicePlan = () => {
+    setServicePlanOpen(false);
+    setServiceVendorId(null);
   };
 
   const openEditForm = (account: VendorAccount) => {
@@ -428,48 +436,46 @@ export default function VendorAccounts() {
   return (
     <div className="relative flex h-full min-h-0 flex-col gap-4">
       {/* ── Page header ── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-gray-900">Vendor Accounts</h2>
-          <p className="text-sm text-gray-500">
-            Manage available and credit days for each vendor
-          </p>
-        </div>
-        </div>
+      <div>
+        <h2 className="text-xl font-bold text-foreground">Vendor Accounts</h2>
+        <p className="text-sm text-muted-foreground">
+          Manage available and credit days for each vendor
+        </p>
+      </div>
 
       {/* ── Search box ── */}
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search by vendor name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-10 bg-white"
+          className="pl-10 bg-card"
           data-testid="input-search-vendor-accounts"
         />
       </div>
 
       {/* ── Accounts table ── */}
-      <div className="relative min-h-[300px] flex-1 overflow-auto rounded-xl border border-gray-200 bg-white [&_th]:border-r [&_th]:border-gray-200 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-gray-100 [&_td:last-child]:border-r-0 [&_tbody_tr]:border-b [&_tbody_tr]:border-gray-100">
+      <div className="relative min-h-[300px] flex-1 overflow-auto rounded-xl border border-border bg-card [&_th]:border-r [&_th]:border-border [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-border [&_td:last-child]:border-r-0 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
         <Table className="min-w-[720px]">
           <TableHeader className="sticky top-0 z-10">
-            <TableRow className="bg-gray-50 hover:bg-gray-50 border-b border-gray-200">
-              <TableHead className="font-semibold text-gray-700">
+            <TableRow className="bg-muted hover:bg-accent border-b border-border">
+              <TableHead className="font-semibold text-foreground">
                 Vendor Name
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Contact
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Available Days
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Outstanding
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Allow Credit Days
               </TableHead>
-              <TableHead className="font-semibold text-gray-700 text-right">
+              <TableHead className="font-semibold text-foreground text-right">
                 Actions
               </TableHead>
             </TableRow>
@@ -489,8 +495,8 @@ export default function VendorAccounts() {
               <TableRow>
                 <TableCell colSpan={6} className="h-40 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <Wallet className="h-10 w-10 text-gray-300" />
-                    <p className="text-sm font-medium text-gray-500">
+                    <Wallet className="h-10 w-10 text-muted-foreground" />
+                    <p className="text-sm font-medium text-muted-foreground">
                       {search
                         ? "No accounts match your search"
                         : "No vendor accounts yet"}
@@ -506,29 +512,29 @@ export default function VendorAccounts() {
                 >
                   <TableCell>
                     {row.vendor.businessName && (
-                      <div className="text-sm font-semibold text-gray-900">
+                      <div className="text-sm font-semibold text-foreground">
                         {row.vendor.businessName}
                       </div>
                     )}
-                    <div className={`text-sm ${row.vendor.businessName ? 'text-gray-500' : 'font-medium text-gray-900'}`}>
+                    <div className={`text-sm ${row.vendor.businessName ? 'text-muted-foreground' : 'font-medium text-foreground'}`}>
                       {row.vendor.firstName} {row.vendor.lastName}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm text-gray-900">{row.vendor.phone}</div>
+                    <div className="text-sm text-foreground">{row.vendor.phone}</div>
                     {row.vendor.email && (
-                      <div className="text-xs text-gray-500">{row.vendor.email}</div>
+                      <div className="text-xs text-muted-foreground">{row.vendor.email}</div>
                     )}
                   </TableCell>
                   <TableCell>
-                    <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border border-blue-200">
+                    <Badge className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 border border-blue-200 dark:border-blue-900">
                       <CalendarClock className="h-3 w-3 mr-1" />
                       {row.availableDays} days
                     </Badge>
                   </TableCell>
                   <TableCell>
                     {/* Outstanding = consumed credit days: 6/7 → 1, 4/7 → 3, 0/7 → 7 */}
-                    <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border border-red-200">
+                    <Badge className="bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30 border border-red-200 dark:border-red-900">
                       {Math.min(row.usedCredits, row.creditDays)} days
                     </Badge>
                   </TableCell>
@@ -537,7 +543,11 @@ export default function VendorAccounts() {
                       const remaining = Math.max(row.creditDays - row.usedCredits, 0);
                       const total = row.creditDays;
                       const hasAvailableDays = row.availableDays > 0;
-                      const isBlocked = !hasAvailableDays && (total === 0 || remaining === 0);
+                      // Mirror the server's `isVendorBlocked`: a vendor with no
+                      // account record at all is NOT blocked, so don't show a
+                      // red badge for them.
+                      const isBlocked =
+                        row.hasAccount && !hasAvailableDays && remaining <= 0;
                       if (isBlocked) {
                         return (
                           <Badge
@@ -549,12 +559,22 @@ export default function VendorAccounts() {
                           </Badge>
                         );
                       }
+                      if (!row.hasAccount) {
+                        return (
+                          <Badge
+                            className="bg-accent text-foreground hover:bg-accent border border-border"
+                            data-testid={`badge-credit-none-${row.vendor.id}`}
+                          >
+                            No account
+                          </Badge>
+                        );
+                      }
                       return (
                         <Badge
                           className={
                             remaining <= 2
-                              ? "bg-orange-100 text-orange-700 hover:bg-orange-100 border border-orange-200"
-                              : "bg-amber-100 text-amber-700 hover:bg-amber-100 border border-amber-200"
+                              ? "bg-orange-100 dark:bg-orange-900/30 text-orange-700 hover:bg-orange-100 dark:hover:bg-orange-900/30 border border-orange-200 dark:border-orange-900"
+                              : "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 border border-amber-200 dark:border-amber-900"
                           }
                           data-testid={`badge-credit-count-${row.vendor.id}`}
                         >
@@ -569,7 +589,7 @@ export default function VendorAccounts() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-gray-500 hover:text-gray-900 relative z-30"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground relative z-30"
                           data-testid={`button-account-actions-${row.vendor.id}`}
                         >
                           <MoreVertical className="h-4 w-4" />
@@ -577,25 +597,10 @@ export default function VendorAccounts() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-52 z-50">
                         <DropdownMenuItem
-                          onSelect={() => {
-                            sessionStorage.setItem("admin_active_vendor_id", String(row.vendor.id));
-                            window.open(`/vendors/${row.vendor.id}`, "_blank");
-                          }}
-                          onClick={() => {
-                            sessionStorage.setItem("admin_active_vendor_id", String(row.vendor.id));
-                            window.open(`/vendors/${row.vendor.id}`, "_blank");
-                          }}
-                          className="cursor-pointer gap-2"
-                          data-testid={`menu-open-vendor-${row.vendor.id}`}
-                        >
-                          <ExternalLink className="h-4 w-4 text-gray-500" />
-                          Open as Vendor
-                        </DropdownMenuItem>
-                        <DropdownMenuItem
                           className="cursor-pointer gap-2"
                           data-testid={`menu-view-history-${row.vendor.id}`}
                         >
-                          <History className="h-4 w-4 text-gray-500" />
+                          <History className="h-4 w-4 text-muted-foreground" />
                           View History
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -604,7 +609,7 @@ export default function VendorAccounts() {
                           className="cursor-pointer gap-2"
                           data-testid={`menu-update-days-${row.vendor.id}`}
                         >
-                          <RefreshCw className="h-4 w-4 text-gray-500" />
+                          <RefreshCw className="h-4 w-4 text-muted-foreground" />
                           Update Days
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -613,7 +618,7 @@ export default function VendorAccounts() {
                           className="cursor-pointer gap-2"
                           data-testid={`menu-update-credits-${row.vendor.id}`}
                         >
-                          <Pencil className="h-4 w-4 text-gray-500" />
+                          <Pencil className="h-4 w-4 text-muted-foreground" />
                           Update Allow Credits
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -621,14 +626,14 @@ export default function VendorAccounts() {
                           className="cursor-pointer gap-2"
                           data-testid={`menu-service-charge-${row.vendor.id}`}
                         >
-                          <DollarSign className="h-4 w-4 text-gray-500" />
+                          <DollarSign className="h-4 w-4 text-muted-foreground" />
                           Service Charge Plan
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="cursor-pointer gap-2"
                           data-testid={`menu-invoices-${row.vendor.id}`}
                         >
-                          <FileText className="h-4 w-4 text-gray-500" />
+                          <FileText className="h-4 w-4 text-muted-foreground" />
                           Platform Invoices
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -646,7 +651,7 @@ export default function VendorAccounts() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-red-500" />
+              <Wallet className="h-5 w-5 text-red-500 dark:text-red-400" />
               {editing ? "Edit Vendor Account" : "Add Vendor Account"}
             </DialogTitle>
             <DialogDescription>
@@ -668,7 +673,7 @@ export default function VendorAccounts() {
                 </SelectTrigger>
                 <SelectContent>
                   {selectableVendors.length === 0 ? (
-                    <div className="px-3 py-2 text-sm text-gray-500">
+                    <div className="px-3 py-2 text-sm text-muted-foreground">
                       No vendors available
                     </div>
                   ) : (
@@ -784,13 +789,13 @@ export default function VendorAccounts() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-red-500" />
+              <RefreshCw className="h-5 w-5 text-red-500 dark:text-red-400" />
               {addDaysMode === "credits" ? "Update Credit Days" : "Add Account Days"}
             </DialogTitle>
             <DialogDescription>
               {addDaysMode === "credits"
-                ? "Set credit days and payment type for this vendor."
-                : "Add balance days and payment type for this vendor."}
+                ? "Set the credit day allowance for this vendor. This resets outstanding days to 0 and leaves the paid balance untouched."
+                : "Top up this vendor's balance. The days entered are added on top of what's already left."}
             </DialogDescription>
           </DialogHeader>
 
@@ -804,12 +809,49 @@ export default function VendorAccounts() {
                 })()
                 }
                 readOnly
-                className="bg-gray-50 h-11"
+                className="bg-muted h-11"
               />
             </div>
 
+            {(() => {
+              const current = (accounts ?? []).find(
+                (a) => a.vendorId === Number(addDaysForm.vendorId),
+              );
+              const entered = Number(addDaysForm.balanceDays || 0);
+              if (addDaysMode === "credits") {
+                return (
+                  <div className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground">
+                    Currently{" "}
+                    <span className="font-semibold text-foreground">
+                      {Math.max((current?.creditDays ?? 0) - (current?.usedCredits ?? 0), 0)}/
+                      {current?.creditDays ?? 0}
+                    </span>{" "}
+                    credit days left
+                  </div>
+                );
+              }
+              return (
+                <div className="rounded-lg border border-border bg-muted px-3 py-2 text-sm text-foreground">
+                  Balance after saving:{" "}
+                  <span className="font-semibold text-foreground" data-testid="text-projected-balance">
+                    {(current?.availableDays ?? 0) + (entered > 0 ? entered : 0)}
+                  </span>{" "}
+                  days
+                  {current?.usedCredits ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      · {current.usedCredits} outstanding credit day
+                      {current.usedCredits === 1 ? "" : "s"} carried over
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })()}
+
             <div className="space-y-2">
-              <Label>{addDaysMode === "credits" ? "Credit Days" : "Available Days"} *</Label>
+              <Label>
+                {addDaysMode === "credits" ? "Credit Days" : "Days to Add"} *
+              </Label>
               <Input
                 type="number"
                 min={0}
@@ -865,13 +907,18 @@ export default function VendorAccounts() {
                 }
                 const vendorId = Number(addDaysForm.vendorId);
                 const existingAccount = (accounts ?? []).find((a) => a.vendorId === vendorId);
+                // Reset the daily clock whenever the balance changes, so freshly
+                // added days aren't retro-billed for days already elapsed.
+                const today = new Date().toISOString().slice(0, 10);
                 if (addDaysMode === "credits") {
-                  // granting a fresh credit allowance resets the counter to N/N
+                  // Granting a fresh credit allowance resets the counter to N/N.
+                  // The paid balance is untouched.
                   const payload = {
                     vendorId,
                     availableDays: existingAccount?.availableDays ?? 0,
                     creditDays: days,
                     usedCredits: 0,
+                    lastBillingDate: today,
                   };
                   if (existingAccount) {
                     addDaysUpdateMutation.mutate({ id: existingAccount.id, ...payload });
@@ -879,17 +926,17 @@ export default function VendorAccounts() {
                     addDaysCreateMutation.mutate(payload);
                   }
                 } else {
-                  // When adding available days:
-                  // 1. Reduce outstanding credits from new available days
-                  // 2. Renew credit days to match
-                  // 3. Reset used credits
-                  const outstanding = existingAccount?.usedCredits ?? 0;
-                  const adjustedDays = Math.max(days - outstanding, 0);
+                  // "Add Account Days" is a top-up: ADD the entered days to the
+                  // balance that is already left. Outstanding credit days stay
+                  // outstanding — they are settled from the credit allowance,
+                  // not silently written off, and the credit limit is left as
+                  // the admin set it.
                   const payload = {
                     vendorId,
-                    availableDays: adjustedDays,
-                    creditDays: days,
-                    usedCredits: 0,
+                    availableDays: (existingAccount?.availableDays ?? 0) + days,
+                    creditDays: existingAccount?.creditDays ?? 0,
+                    usedCredits: existingAccount?.usedCredits ?? 0,
+                    lastBillingDate: today,
                   };
                   if (existingAccount) {
                     addDaysUpdateMutation.mutate({ id: existingAccount.id, ...payload });
@@ -907,45 +954,69 @@ export default function VendorAccounts() {
         </DialogContent>
       </Dialog>
 
-      {/* ── Service Charge Plan (full screen within content area) ── */}
-      {serviceVendorId != null && (
-        <div className="absolute inset-0 z-20 flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-white">
-          <div className="flex items-start justify-between gap-3 border-b border-gray-200 px-4 py-4 sm:px-6">
+      {/* ── Service Charge Plan (full screen to the right of the sidebar) ── */}
+      {servicePlanOpen && (
+        <div className="fixed inset-y-0 right-0 left-[var(--admin-sidebar-w,0rem)] z-20 flex flex-col overflow-hidden bg-card">
+          <div className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
             <div className="flex items-center gap-2">
-              <DollarSign className="h-5 w-5 text-red-500" />
+              <DollarSign className="h-5 w-5 text-red-500 dark:text-red-400" />
               <div>
-                <h3 className="text-base font-semibold text-gray-900">
+                <h3 className="text-base font-semibold text-foreground">
                   Service Charge Plan
                 </h3>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-muted-foreground">
                   {serviceVendorName
                     ? "Set the platform fee and service charge for " +
                       serviceVendorName +
                       "."
-                    : "Set the platform fee and service charge for this vendor."}
+                    : "Pick a vendor, then set their platform fee and service charge."}
                 </p>
               </div>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setServiceVendorId(null)}
-              aria-label="Close"
-              data-testid="button-close-service-charge"
-            >
-              <X className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={closeServicePlan}
+                aria-label="Close"
+                data-testid="button-close-service-charge"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6">
             {serviceChargeLoading ? (
-              <div className="mx-auto max-w-3xl space-y-3">
+              <div className="w-full space-y-3">
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="h-10 w-full" />
               </div>
             ) : (
-              <div className="mx-auto max-w-3xl space-y-5">
+              <div className="w-full space-y-5">
+                <div className="space-y-2">
+                  <Label>Vendor</Label>
+                  <Select
+                    value={serviceVendorId != null ? String(serviceVendorId) : ""}
+                    onValueChange={(value) => setServiceVendorId(Number(value))}
+                  >
+                    <SelectTrigger
+                      className="w-full bg-card"
+                      data-testid="select-service-vendor"
+                    >
+                      <SelectValue placeholder="Select vendor..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(vendors ?? []).map((v) => (
+                        <SelectItem key={v.id} value={String(v.id)}>
+                          {v.businessName || `${v.firstName} ${v.lastName}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 <div className="space-y-2">
                   <Label>Service Charge Method</Label>
                   <Select
@@ -957,7 +1028,10 @@ export default function VendorAccounts() {
                       }))
                     }
                   >
-                    <SelectTrigger data-testid="select-service-method">
+                    <SelectTrigger
+                      disabled={serviceVendorId == null}
+                      data-testid="select-service-method"
+                    >
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -974,7 +1048,9 @@ export default function VendorAccounts() {
                       type="number"
                       min={0}
                       value={serviceForm.perUserCharge}
-                      disabled={serviceForm.method === "fixed"}
+                      disabled={
+                        serviceVendorId == null || serviceForm.method === "fixed"
+                      }
                       onChange={(e) =>
                         setServiceForm((f) => ({
                           ...f,
@@ -989,6 +1065,7 @@ export default function VendorAccounts() {
                     <Input
                       type="number"
                       min={0}
+                      disabled={serviceVendorId == null}
                       value={serviceForm.defaultPrice}
                       onChange={(e) =>
                         setServiceForm((f) => ({
@@ -1000,10 +1077,11 @@ export default function VendorAccounts() {
                     />
                   </div>
                   <div className="space-y-2">
-                      <Label>Platform Fee (₹, all vendors)</Label>
+                      <Label>Platform Fee (₹)</Label>
                     <Input
                       type="number"
                       min={0}
+                      disabled={serviceVendorId == null}
                       value={serviceForm.platformFee}
                       onChange={(e) =>
                         setServiceForm((f) => ({
@@ -1016,17 +1094,18 @@ export default function VendorAccounts() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
+                {serviceVendorId != null ? (
+                <div className="rounded-lg border border-border bg-muted p-4 text-sm">
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-gray-500">
+                    <span className="text-muted-foreground">
                       Users (from vendor database)
                     </span>
-                    <span className="font-medium text-gray-900">
+                    <span className="font-medium text-foreground">
                       {serviceCharge?.hasKeys ? scUsers : "—"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-gray-500">
+                    <span className="text-muted-foreground">
                       {serviceForm.method === "fixed"
                         ? "Service charge (fixed)"
                         : "Service charge (" +
@@ -1037,36 +1116,41 @@ export default function VendorAccounts() {
                           scDefault +
                           ")"}
                     </span>
-                    <span className="font-medium text-gray-900">
+                    <span className="font-medium text-foreground">
                       ₹{scServiceCharge}
                     </span>
                   </div>
                   <div className="flex items-center justify-between py-1">
-                    <span className="text-gray-500">Platform fee (global)</span>
-                    <span className="font-medium text-gray-900">
+                    <span className="text-muted-foreground">Platform fee</span>
+                    <span className="font-medium text-foreground">
                       ₹{scPlatform}
                     </span>
                   </div>
-                  <div className="mt-1 flex items-center justify-between border-t border-gray-200 pt-2">
-                    <span className="font-semibold text-gray-900">Total</span>
-                    <span className="font-bold text-red-600">₹{scTotal}</span>
+                  <div className="mt-1 flex items-center justify-between border-t border-border pt-2">
+                    <span className="font-semibold text-foreground">Total</span>
+                    <span className="font-bold text-red-600 dark:text-red-400">₹{scTotal}</span>
                   </div>
                   {!serviceCharge?.hasKeys && (
-                    <p className="mt-2 text-xs text-amber-600">
+                    <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
                       No Neon project configured for this vendor — user count is
                       unavailable, showing the minimum charge.
                     </p>
                   )}
                 </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-input bg-muted p-4 text-center text-sm text-muted-foreground">
+                    Select a vendor to see the live charge calculation.
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          <div className="flex items-center justify-end gap-2 border-t border-gray-200 px-4 py-4 sm:px-6">
+          <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-4 sm:px-6">
             <Button
               type="button"
               variant="ghost"
-              onClick={() => setServiceVendorId(null)}
+              onClick={closeServicePlan}
               disabled={saveServiceChargeMutation.isPending}
             >
               Cancel
@@ -1075,7 +1159,9 @@ export default function VendorAccounts() {
               type="button"
               onClick={handleSaveServicePlan}
               disabled={
-                saveServiceChargeMutation.isPending || serviceChargeLoading
+                saveServiceChargeMutation.isPending ||
+                serviceChargeLoading ||
+                serviceVendorId == null
               }
               className="bg-red-600 hover:bg-red-700 text-white"
               data-testid="button-save-service-charge"

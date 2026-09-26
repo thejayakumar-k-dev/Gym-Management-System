@@ -10,41 +10,55 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { TrendingUp, Search, History, Banknote, CreditCard } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Payment } from "@shared/schema";
 import { formatDuration } from "@shared/duration";
-import { formatDate } from "@/lib/format";
+import { formatDate, todayDateOnly } from "@/lib/format";
 
 export default function PaymentHistory() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(
-    new Date().toISOString().slice(0, 7)
-  );
+  // Defaults to today so the tab opens on the day's records. An empty string
+  // still means "unbounded" on that end, so clearing a box widens the view.
+  const [fromDate, setFromDate] = useState(todayDateOnly());
+  const [toDate, setToDate] = useState(todayDateOnly());
 
   const { data: payments, isLoading } = useQuery<Payment[]>({
     queryKey: ["/api/payments"],
   });
 
+  // A reversed range is a common slip; treat it as the same window rather than
+  // silently returning nothing.
+  const reversed = Boolean(fromDate && toDate && fromDate > toDate);
+  const rangeStart = reversed ? toDate : fromDate;
+  const rangeEnd = reversed ? fromDate : toDate;
+
   const filteredPayments = payments?.filter((payment) => {
     const matchesSearch =
       payment.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       payment.registerNo.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesMonth = payment.date.startsWith(selectedMonth);
-    return matchesSearch && matchesMonth;
+    // `payments.date` is a Postgres date column, already "YYYY-MM-DD", so
+    // lexicographic string comparison is an exact, timezone-proof date range.
+    const matchesRange =
+      (!rangeStart || payment.date >= rangeStart) &&
+      (!rangeEnd || payment.date <= rangeEnd);
+    return matchesSearch && matchesRange;
   });
 
-  const selectedMonthTotal = filteredPayments?.reduce(
-    (sum, p) => sum + p.amount,
-    0
-  ) ?? 0;
+  const rangeTotal = filteredPayments?.reduce((sum, p) => sum + p.amount, 0) ?? 0;
 
   const overallTotal = payments?.reduce((sum, p) => sum + p.amount, 0) ?? 0;
 
-  const selectedMonthDate = new Date(selectedMonth + "-01");
-  const monthName = selectedMonthDate.toLocaleString("default", { month: "long" });
-  const year = selectedMonthDate.getFullYear();
+  const rangeLabel =
+    rangeStart && rangeEnd
+      ? rangeStart === rangeEnd
+        ? formatDate(rangeStart)
+        : `${formatDate(rangeStart)} – ${formatDate(rangeEnd)}`
+      : rangeStart
+        ? `from ${formatDate(rangeStart)}`
+        : rangeEnd
+          ? `up to ${formatDate(rangeEnd)}`
+          : "all dates";
 
   return (
     <div className="space-y-6">
@@ -59,16 +73,16 @@ export default function PaymentHistory() {
             <div>
               <CardTitle className="text-sm font-medium text-orange-800 dark:text-orange-200 flex items-center gap-2">
                 <TrendingUp className="h-4 w-4" />
-                Selected Month Total
+                Selected Period Total
               </CardTitle>
               <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
-                {filteredPayments?.length ?? 0} payment(s) in {monthName} {year}
+                {filteredPayments?.length ?? 0} payment(s) {rangeLabel}
               </p>
             </div>
           </CardHeader>
           <CardContent>
             <p className="text-3xl font-bold text-orange-900 dark:text-orange-100" data-testid="text-selected-month-total">
-              ₹ {selectedMonthTotal}
+              ₹ {rangeTotal.toLocaleString("en-IN")}
             </p>
           </CardContent>
         </Card>
@@ -94,30 +108,58 @@ export default function PaymentHistory() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Payment Records</CardTitle>
-          <CardDescription>Search and filter payment history</CardDescription>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>Payment Records</CardTitle>
+            <CardDescription>Search and filter payment history</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1">
+              <label
+                htmlFor="filter-from"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                From
+              </label>
+              <Input
+                id="filter-from"
+                type="date"
+                value={fromDate}
+                max={rangeEnd || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                data-testid="input-filter-from"
+                className="h-9 w-[9.5rem]"
+              />
+            </div>
+            <div className="space-y-1">
+              <label
+                htmlFor="filter-to"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                To
+              </label>
+              <Input
+                id="filter-to"
+                type="date"
+                value={toDate}
+                min={rangeStart || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                data-testid="input-filter-to"
+                className="h-9 w-[9.5rem]"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search by name or member ID..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-student"
-              />
-            </div>
-            <div className="sm:w-48">
-              <Input
-                type="month"
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                data-testid="input-filter-month"
-              />
-            </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by name or member ID..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+              data-testid="input-search-student"
+            />
           </div>
 
           {isLoading ? (
@@ -178,6 +220,12 @@ export default function PaymentHistory() {
             <div className="text-center py-12 text-muted-foreground">
               <History className="h-12 w-12 mx-auto mb-4 opacity-20" />
               <p>No payment records found</p>
+              {rangeStart || rangeEnd ? (
+                <p className="text-sm mt-1">
+                  Nothing was received {rangeLabel}. Try a wider range or pick
+                  &ldquo;All Time&rdquo;.
+                </p>
+              ) : null}
             </div>
           )}
         </CardContent>

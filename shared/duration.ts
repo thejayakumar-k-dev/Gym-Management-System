@@ -43,6 +43,49 @@ export function toDateOnly(value: string | Date): string {
 }
 
 /**
+ * Whole calendar days between two stored date values.
+ *
+ * Both sides are normalised through {@link toDateOnly} first, so Postgres
+ * `date` strings and `Date` objects are treated identically. The maths runs in
+ * UTC because a "day" is a calendar concept here — using local midnight would
+ * make DST transitions report 23-hour days and round down to 0.
+ *
+ * Returns 0 for unparseable input, and never a negative number.
+ */
+export function daysBetweenDateOnly(from: string | Date, to: string | Date): number {
+  const start = toDateOnly(from);
+  const end = toDateOnly(to);
+  if (!start || !end) return 0;
+
+  const startMs = Date.parse(`${start}T00:00:00Z`);
+  const endMs = Date.parse(`${end}T00:00:00Z`);
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) return 0;
+
+  return Math.max(0, Math.round((endMs - startMs) / 86_400_000));
+}
+
+/**
+ * `YYYY-MM` calendar month for a stored date value.
+ *
+ * Month bucketing used to go through `new Date(p.date).getMonth()`, which is
+ * wrong: Postgres `date` columns arrive as `YYYY-MM-DD`, `new Date()` parses
+ * that as UTC midnight, and reading `.getMonth()` back in local time lands on
+ * the *previous* day for anyone west of UTC — so the 1st of the month was
+ * billed to the month before. Comparing the `YYYY-MM` prefix as text sidesteps
+ * timezones entirely.
+ */
+export function toMonthKey(value: string | Date): string {
+  return toDateOnly(value).slice(0, 7);
+}
+
+/**
+ * `YYYY-MM` key for a month index (0-11) within a given year.
+ */
+export function monthKeyFor(year: number, monthIndex: number): string {
+  return `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+}
+
+/**
  * Single source of truth for "is this membership expired?" — used by the
  * dashboard list, the dashboard stats and the attendance pad so they can never
  * disagree with each other again.

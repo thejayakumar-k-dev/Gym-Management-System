@@ -92,3 +92,15 @@ export function formatDateFull(
   const weekday = new Date(parts.year, parts.month - 1, parts.day).getDay();
   return `${WEEKDAYS[weekday]}, ${parts.day} ${MONTHS[parts.month - 1]} ${parts.year}`;
 }
+
+/**
+ * Today's calendar date as "YYYY-MM-DD", in the viewer's own timezone.
+ *
+ * Use this — never `new Date().toISOString().split("T")[0]` — to seed a
+ * `<input type="date">`. `toISOString()` is UTC, so for anyone east of UTC it
+ * returns *yesterday* for the first few hours of their morning.
+ */
+export function todayDateOnly(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}

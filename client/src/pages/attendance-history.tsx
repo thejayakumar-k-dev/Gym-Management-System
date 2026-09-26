@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import type { Attendance } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { authHeaders } from "@/lib/queryClient";
-import { formatDate, formatDateFull } from "@/lib/format";
+import { formatDate, formatDateFull, todayDateOnly } from "@/lib/format";
 
 // Helper function to format time from ISO UTC to local time
 function formatTime(time: string | null | undefined) {
@@ -38,18 +38,25 @@ function formatTime(time: string | null | undefined) {
 }
 
 export default function AttendanceHistory() {
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0]
-  );
+  const today = todayDateOnly();
+  const [fromDate, setFromDate] = useState(today);
+  const [toDate, setToDate] = useState(today);
   const [searchRegister, setSearchRegister] = useState("");
   const { toast } = useToast();
 
+  // Swapped bounds are a common typo — query the window the user meant rather
+  // than silently returning nothing.
+  const reversed = Boolean(fromDate && toDate && fromDate > toDate);
+  const rangeStart = reversed ? toDate : fromDate;
+  const rangeEnd = reversed ? fromDate : toDate;
+
   const { data: attendanceRecords, isLoading } = useQuery<Attendance[]>({
-    queryKey: ["/api/attendance", selectedDate],
+    queryKey: ["/api/attendance", "range", rangeStart, rangeEnd],
     queryFn: async () => {
-      const res = await fetch(`/api/attendance?date=${selectedDate}`, {
-        headers: await authHeaders(),
-      });
+      const res = await fetch(
+        `/api/attendance?from=${rangeStart}&to=${rangeEnd}`,
+        { headers: await authHeaders(), credentials: "include" },
+      );
       if (!res.ok) throw new Error("Failed to fetch attendance records");
       return res.json();
     },
@@ -62,11 +69,16 @@ export default function AttendanceHistory() {
       record.studentName.toLowerCase().includes(searchRegister.toLowerCase())
   );
 
+  const rangeLabel =
+    rangeStart === rangeEnd
+      ? formatDateFull(rangeStart)
+      : `${formatDateFull(rangeStart)} — ${formatDateFull(rangeEnd)}`;
+
   const handleExportCSV = () => {
     if (!filteredRecords || filteredRecords.length === 0) {
       toast({
         title: "No data to export",
-        description: "Please select a date with attendance records",
+        description: "Please select a date range with attendance records",
         variant: "destructive",
       });
       return;
@@ -86,7 +98,7 @@ export default function AttendanceHistory() {
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `attendance_${selectedDate}.csv`;
+    a.download = `attendance_${rangeStart}_to_${rangeEnd}.csv`;
     a.click();
     window.URL.revokeObjectURL(url);
 
@@ -103,7 +115,7 @@ export default function AttendanceHistory() {
         <Button
           onClick={handleExportCSV}
           variant="outline"
-          className="w-full sm:w-auto"
+          className="w-full sm:w-auto dark:text-white"
           disabled={!filteredRecords || filteredRecords.length === 0}
           data-testid="button-export-csv"
         >
@@ -112,29 +124,16 @@ export default function AttendanceHistory() {
         </Button>
       </div>
 
-      <Card>
+        <Card>
         <CardHeader>
           <CardTitle>Attendance Records</CardTitle>
           <CardDescription>
-            Showing {filteredRecords?.length ?? 0} record(s) for{" "}
-            {formatDateFull(selectedDate)}
+            Showing {filteredRecords?.length ?? 0} record(s) for {rangeLabel}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium flex items-center gap-2">
-                <Calendar className="h-4 w-4" />
-                Select Date
-              </label>
-              <Input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => setSelectedDate(e.target.value)}
-                data-testid="input-select-date"
-              />
-            </div>
-            <div className="space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="space-y-2 sm:col-span-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Search className="h-4 w-4" />
                 Search by Member ID
@@ -146,7 +145,34 @@ export default function AttendanceHistory() {
                 data-testid="input-search-register"
               />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                From Date
+              </label>
+              <Input
+                type="date"
+                value={fromDate}
+                max={toDate || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                data-testid="input-filter-from"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                To Date
+              </label>
+              <Input
+                type="date"
+                value={toDate}
+                min={fromDate || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                data-testid="input-filter-to"
+              />
+            </div>
           </div>
+
 
           {isLoading ? (
             <div className="space-y-3">
@@ -180,7 +206,7 @@ export default function AttendanceHistory() {
           ) : (
             <div className="text-center py-12 text-muted-foreground">
               <Calendar className="h-12 w-12 mx-auto mb-4 opacity-20" />
-              <p>No attendance records found for this date</p>
+              <p>No attendance records found for this date range</p>
             </div>
           )}
         </CardContent>

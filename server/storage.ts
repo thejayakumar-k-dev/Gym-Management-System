@@ -6,9 +6,9 @@
  * the app keep working identically.
  */
 
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, gte, gt, lte, desc, sql } from "drizzle-orm";
 import { db, type DrizzleDB } from "./db.js";
-import { isMembershipExpired } from "../shared/duration.js";
+import { isMembershipExpired, toDateOnly, toMonthKey, monthKeyFor, daysBetweenDateOnly } from "../shared/duration.js";
 import {
   students,
   payments,
@@ -19,7 +19,6 @@ import {
   vendorServicePlans,
   platformSettings,
   membershipPlans,
-  DEFAULT_MEMBERSHIP_PLANS,
   type Student,
   type InsertStudent,
   type Payment,
@@ -85,6 +84,40 @@ function ensureStudentBatchColumn(dbc: DrizzleDB): Promise<void> {
   });
 }
 
+// vendor_service_plans predates per-vendor platform fees — make sure the
+// column exists before we read/write it (idempotent, same pattern as above).
+const servicePlanMigrations = new WeakMap<object, Promise<void>>();
+
+function ensureServicePlanTable(dbc: DrizzleDB): Promise<void> {
+  const key = dbc as object;
+  const existing = servicePlanMigrations.get(key);
+  if (existing) return existing;
+
+  const migration = (async () => {
+    await dbc.execute(sql.raw(`
+      CREATE TABLE IF NOT EXISTS vendor_service_plans (
+        id SERIAL PRIMARY KEY,
+        vendor_id INTEGER NOT NULL UNIQUE REFERENCES vendors(id) ON DELETE CASCADE,
+        method VARCHAR(20) NOT NULL DEFAULT 'per_user',
+        per_user_charge INTEGER NOT NULL DEFAULT 1,
+        default_price INTEGER NOT NULL DEFAULT 199,
+        platform_fee INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `));
+    await dbc.execute(
+      sql.raw(
+        "ALTER TABLE vendor_service_plans ADD COLUMN IF NOT EXISTS platform_fee INTEGER",
+      ),
+    );
+  })();
+  servicePlanMigrations.set(key, migration);
+  return migration.catch((error) => {
+    servicePlanMigrations.delete(key);
+    throw error;
+  });
+}
+
 async function ensureMembershipPlansTable(dbc: DrizzleDB): Promise<void> {
   if (ensuredTables.has(dbc as object)) return;
   await dbc.execute(sql.raw(`
@@ -130,6 +163,7 @@ export interface IStorage {
   createVendorAccount(account: InsertVendorAccount): Promise<VendorAccount>;
   updateVendorAccount(id: number, account: Partial<InsertVendorAccount>): Promise<VendorAccount>;
   deleteVendorAccount(id: number): Promise<void>;
+  runDailyVendorBilling(vendorId?: number): Promise<number>;
   consumeVendorCreditDay(vendorId: number): Promise<VendorAccount | null>;
   isVendorBlocked(vendorId: number): Promise<{ blocked: boolean; availableDays: number; remainingCredits: number; totalCredits: number; usedCredits: number; hasAccount: boolean; vendorName: string; businessName: string | null; phone: string; } | null>;
 
@@ -150,7 +184,7 @@ export interface IStorage {
 
   // Vendor Service Charge Plans
   getVendorServicePlan(vendorId: number): Promise<VendorServicePlan | null>;
-  upsertVendorServicePlan(vendorId: number, plan: Pick<InsertVendorServicePlan, "method" | "perUserCharge" | "defaultPrice">): Promise<VendorServicePlan>;
+  upsertVendorServicePlan(vendorId: number, plan: Pick<InsertVendorServicePlan, "method" | "perUserCharge" | "defaultPrice" | "platformFee">): Promise<VendorServicePlan>;
   getVendorServiceCharge(vendorId: number): Promise<VendorServiceChargeSummary>;
 
   // Platform Settings
@@ -169,6 +203,8 @@ export interface IStorage {
 
   // Attendance
   getAttendanceByDate(date: string): Promise<Attendance[]>;
+  /** Attendance between two `YYYY-MM-DD` dates, inclusive on both ends. */
+  getAttendanceInRange(from: string, to: string): Promise<Attendance[]>;
   getTodayAttendanceCount(): Promise<number>;
   createAttendance(attendance: InsertAttendance): Promise<Attendance>;
 
@@ -181,15 +217,25 @@ export interface IStorage {
   }>;
 
   // Income stats
-  getIncomeStats(): Promise<{
+  getIncomeStats(dbc?: DrizzleDB, year?: number): Promise<{
     cashInHand: number;
     onlinePayments: number;
     thisMonthIncome: number;
     thisYearIncome: number;
+    /** Year the year-scoped figures below were computed for. */
+    selectedYear: number;
+    /** Total collected in `selectedYear`. */
+    selectedYearIncome: number;
+    /** Distinct years present in the payments table, newest first. */
+    availableYears: number[];
     totalOverallIncome: number;
     monthlyBreakdown: { month: string; amount: number; paymentCount: number }[];
     averageMonthlyIncome: number;
+    /** Payments received in the current calendar month (count, not rupees). */
     totalPaymentsReceived: number;
+    thisMonthPaymentsReceived: number;
+    thisYearPaymentsReceived: number;
+    allTimePaymentsReceived: number;
   }>;
 }
 
@@ -489,6 +535,9 @@ export class DrizzleStorage implements IStorage {
   // ── Vendor Accounts ──────────────────────────────────────────────
 
   async getVendorAccounts(): Promise<VendorAccount[]> {
+    // Settle any days that elapsed since the last read so the admin panel and
+    // dashboard never show a stale balance.
+    await this.runDailyVendorBilling();
     return db.select().from(vendorAccounts).orderBy(desc(vendorAccounts.id));
   }
 
@@ -503,7 +552,9 @@ export class DrizzleStorage implements IStorage {
       availableDays: account.availableDays ?? 0,
       creditDays: account.creditDays ?? 0,
       usedCredits: account.usedCredits ?? 0,
-      lastBillingDate: account.lastBillingDate ?? null,
+      // A brand new balance starts counting from today, never from a
+      // backdated date the client may have sent.
+      lastBillingDate: toDateOnly(new Date()),
     }).returning();
     return rows[0];
   }
@@ -524,34 +575,119 @@ export class DrizzleStorage implements IStorage {
     await db.delete(vendorAccounts).where(eq(vendorAccounts.id, id));
   }
 
+  /**
+   * Settle elapsed calendar days against every vendor balance.
+   *
+   * Paid days are consumed first; once they run out the overflow eats into the
+   * credit allowance (`usedCredits`) but never past `creditDays`, so a vendor
+   * can never be pushed into a negative balance by a long gap.
+   *
+   * Deliberately lazy rather than cron-based: the app runs both as a long-lived
+   * Express server and as a Vercel serverless function, where no timer is
+   * guaranteed to fire. Callers invoke this before reading balances instead,
+   * which is idempotent — `lastBillingDate` means a given day is only ever
+   * billed once no matter how many times this runs.
+   *
+   * Accounts that have never been billed anchor to today and are charged
+   * nothing, so enabling this cannot retroactively block existing vendors.
+   *
+   * @param vendorId limit the sweep to a single vendor (used by the login gate)
+   * @returns how many accounts were actually changed
+   */
+  async runDailyVendorBilling(vendorId?: number): Promise<number> {
+    const today = toDateOnly(new Date());
+    const rows = await db
+      .select()
+      .from(vendorAccounts)
+      .where(vendorId != null ? eq(vendorAccounts.vendorId, vendorId) : undefined);
+
+    let updatedCount = 0;
+
+    for (const account of rows) {
+      const lastBilled = account.lastBillingDate ? toDateOnly(account.lastBillingDate) : "";
+      if (!lastBilled) {
+        // First ever run for this account — anchor it without charging.
+        await db
+          .update(vendorAccounts)
+          .set({ lastBillingDate: today })
+          .where(eq(vendorAccounts.id, account.id));
+        continue;
+      }
+
+      const elapsedDays = daysBetweenDateOnly(lastBilled, today);
+      if (elapsedDays <= 0) continue;
+
+      const paidDaysUsed = Math.min(elapsedDays, account.availableDays);
+      const creditRoom = Math.max(account.creditDays - account.usedCredits, 0);
+      const creditDaysUsed = Math.min(elapsedDays - paidDaysUsed, creditRoom);
+
+      // Guard on lastBillingDate so a concurrent run can't bill the same day
+      // twice; the loser of the race simply updates zero rows.
+      const updated = await db
+        .update(vendorAccounts)
+        .set({
+          availableDays: account.availableDays - paidDaysUsed,
+          usedCredits: account.usedCredits + creditDaysUsed,
+          lastBillingDate: today,
+        })
+        .where(and(eq(vendorAccounts.id, account.id), eq(vendorAccounts.lastBillingDate, lastBilled)))
+        .returning();
+
+      if (updated.length > 0) updatedCount += 1;
+    }
+
+    return updatedCount;
+  }
+
+  /**
+   * Consume one day for a vendor: paid days first, then credit days.
+   *
+   * Kept as a single source of truth for "this vendor used a day today" — the
+   * daily sweep is settled first so a manual consume can never be used to skip
+   * ahead of (or double-charge) the calendar.
+   */
   async consumeVendorCreditDay(vendorId: number): Promise<VendorAccount | null> {
+    await this.runDailyVendorBilling(vendorId);
+
     const rows = await db.select().from(vendorAccounts).where(eq(vendorAccounts.vendorId, vendorId)).limit(1);
     const existing = rows[0];
     if (!existing) return null;
 
-    const { availableDays, creditDays, usedCredits } = existing;
-
-    if (availableDays > 0) {
-      const updated = await db.update(vendorAccounts)
-        .set({ availableDays: availableDays - 1 })
-        .where(eq(vendorAccounts.id, existing.id))
-        .returning();
-      return updated[0];
-    }
-
-    const remainingCredits = creditDays - usedCredits;
-    if (remainingCredits <= 0) return existing;
-
-    const updated = await db.update(vendorAccounts)
-      .set({ usedCredits: usedCredits + 1 })
-      .where(eq(vendorAccounts.id, existing.id))
+    // Conditional UPDATEs instead of read-modify-write: two concurrent
+    // consumes can't both see the same balance and each write back the same
+    // decremented value.
+    const paid = await db
+      .update(vendorAccounts)
+      .set({ availableDays: sql`GREATEST(${vendorAccounts.availableDays} - 1, 0)` })
+      .where(and(eq(vendorAccounts.id, existing.id), gt(vendorAccounts.availableDays, 0)))
       .returning();
-    return updated[0];
+    if (paid.length > 0) return paid[0];
+
+    const credit = await db
+      .update(vendorAccounts)
+      .set({ usedCredits: sql`${vendorAccounts.usedCredits} + 1` })
+      .where(
+        and(
+          eq(vendorAccounts.id, existing.id),
+          lte(vendorAccounts.availableDays, 0),
+          sql`${vendorAccounts.usedCredits} < ${vendorAccounts.creditDays}`,
+        ),
+      )
+      .returning();
+    if (credit.length > 0) return credit[0];
+
+    // Nothing left to consume — blocked.
+    const current = await db.select().from(vendorAccounts).where(eq(vendorAccounts.id, existing.id)).limit(1);
+    return current[0] ?? existing;
   }
 
   async isVendorBlocked(vendorId: number): Promise<{ blocked: boolean; availableDays: number; remainingCredits: number; totalCredits: number; usedCredits: number; hasAccount: boolean; vendorName: string; businessName: string | null; phone: string; } | null> {
     const vendor = await this.getVendorById(vendorId);
     if (!vendor) return null;
+
+    // The sign-in gate is the one place a stale balance would actually lock a
+    // vendor out, so settle elapsed days before deciding.
+    await this.runDailyVendorBilling(vendorId);
 
     const rows = await db.select().from(vendorAccounts).where(eq(vendorAccounts.vendorId, vendorId)).limit(1);
     const existing = rows[0];
@@ -649,20 +785,25 @@ export class DrizzleStorage implements IStorage {
   // ── Vendor Service Charge Plans ──────────────────────────────────
 
   async getVendorServicePlan(vendorId: number): Promise<VendorServicePlan | null> {
+    await ensureServicePlanTable(db);
     const rows = await db.select().from(vendorServicePlans).where(eq(vendorServicePlans.vendorId, vendorId)).limit(1);
     return rows[0] ?? null;
   }
 
   async upsertVendorServicePlan(
     vendorId: number,
-    plan: Pick<InsertVendorServicePlan, "method" | "perUserCharge" | "defaultPrice">
+    plan: Pick<InsertVendorServicePlan, "method" | "perUserCharge" | "defaultPrice" | "platformFee">
   ): Promise<VendorServicePlan> {
+    await ensureServicePlanTable(db);
+
     // Try update first
     const updated = await db.update(vendorServicePlans)
       .set({
         method: plan.method,
         perUserCharge: plan.perUserCharge,
         defaultPrice: plan.defaultPrice,
+        // null = "use the global default"; each vendor keeps its own value.
+        platformFee: plan.platformFee ?? null,
       })
       .where(eq(vendorServicePlans.vendorId, vendorId))
       .returning();
@@ -675,6 +816,7 @@ export class DrizzleStorage implements IStorage {
       method: plan.method,
       perUserCharge: plan.perUserCharge,
       defaultPrice: plan.defaultPrice,
+      platformFee: plan.platformFee ?? null,
     }).returning();
     return inserted[0];
   }
@@ -688,7 +830,7 @@ export class DrizzleStorage implements IStorage {
     const method = plan?.method === "fixed" ? "fixed" : "per_user";
     const perUserCharge = plan?.perUserCharge ?? 1;
     const defaultPrice = plan?.defaultPrice ?? 199;
-    const platformFee = platform.platformFee;
+    const platformFee = plan?.platformFee ?? platform.platformFee;
 
     let userCount: number | null = null;
     let hasKeys = false;
@@ -778,17 +920,9 @@ export class DrizzleStorage implements IStorage {
 
   async getMembershipPlans(dbc: DrizzleDB = db): Promise<MembershipPlan[]> {
     await ensureMembershipPlansTable(dbc);
-    let rows = await dbc.select().from(membershipPlans).orderBy(membershipPlans.durationMonths);
-
-    // Seed the standard 1 Month / 3 Month / 1 Year plans on first visit.
-    if (rows.length === 0) {
-      for (const plan of DEFAULT_MEMBERSHIP_PLANS) {
-        await dbc.insert(membershipPlans).values({ ...plan }).onConflictDoNothing();
-      }
-      rows = await dbc.select().from(membershipPlans).orderBy(membershipPlans.durationMonths);
-    }
-
-    return rows;
+    // Deliberately NOT seeded: a new gym starts empty and the owner adds
+    // their own plans (the empty state in the Membership Plans tab).
+    return dbc.select().from(membershipPlans).orderBy(membershipPlans.durationMonths);
   }
 
   async createMembershipPlan(
@@ -872,9 +1006,8 @@ export class DrizzleStorage implements IStorage {
       ]);
 
       const now = new Date();
-      const today = now.toISOString().split("T")[0];
+      const today = toDateOnly(now);
       const currentYear = now.getFullYear();
-      const currentMonth = now.getMonth();
 
       const totalMembers = allStudents.length;
       const activeMembers = allStudents.filter(
@@ -887,10 +1020,7 @@ export class DrizzleStorage implements IStorage {
       const cashInHand = sumAmount(allPayments.filter((p) => p.paymentMethod === "cash"));
       const onlinePayments = sumAmount(allPayments.filter((p) => p.paymentMethod === "online"));
       const thisMonthIncome = sumAmount(
-        allPayments.filter((p) => {
-          const d = new Date(p.date);
-          return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-        })
+        allPayments.filter((p) => toMonthKey(p.date) === toMonthKey(now))
       );
       const totalIncome = sumAmount(allPayments);
       const todayAttendance = allAttendance.filter((a) => a.date === today).length;
@@ -901,10 +1031,9 @@ export class DrizzleStorage implements IStorage {
       ];
 
       const monthlyBreakdown = monthNames.map((month, index) => {
-        const monthPayments = allPayments.filter((p) => {
-          const d = new Date(p.date);
-          return d.getFullYear() === currentYear && d.getMonth() === index;
-        });
+        const monthPayments = allPayments.filter(
+          (p) => toMonthKey(p.date) === monthKeyFor(currentYear, index),
+        );
         return {
           month,
           amount: sumAmount(monthPayments),
@@ -934,6 +1063,28 @@ export class DrizzleStorage implements IStorage {
 
   async getAttendanceByDate(date: string, dbc: DrizzleDB = db): Promise<Attendance[]> {
     return dbc.select().from(attendance).where(eq(attendance.date, date));
+  }
+
+  /**
+   * Attendance between two calendar dates, inclusive on both ends.
+   *
+   * `date` is a Postgres `date` column, so the bounds compare as plain
+   * `YYYY-MM-DD` strings and no timezone can shift a record into a neighbouring
+   * day. Callers that pass the bounds the wrong way round get them swapped
+   * rather than an empty result.
+   */
+  async getAttendanceInRange(
+    from: string,
+    to: string,
+    dbc: DrizzleDB = db,
+  ): Promise<Attendance[]> {
+    const start = from <= to ? from : to;
+    const end = from <= to ? to : from;
+    return dbc
+      .select()
+      .from(attendance)
+      .where(and(gte(attendance.date, start), lte(attendance.date, end)))
+      .orderBy(desc(attendance.date), desc(attendance.id));
   }
 
   async getTodayAttendanceCount(dbc: DrizzleDB = db): Promise<number> {
@@ -979,33 +1130,60 @@ export class DrizzleStorage implements IStorage {
 
   // ── Income stats ─────────────────────────────────────────────────
 
-  async getIncomeStats(dbc: DrizzleDB = db) {
+  async getIncomeStats(dbc: DrizzleDB = db, year?: number) {
     const allPayments = await dbc.select().from(payments);
 
     const now = new Date();
     const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
+    const currentMonthKey = toMonthKey(now);
 
-    const cashInHand = allPayments
-      .filter((p) => p.paymentMethod === "cash")
-      .reduce((sum, p) => sum + p.amount, 0);
+    // The year filter only ever scopes the year-based figures. Anything outside
+    // a plausible range is ignored so a bad query param can't blank the page.
+    const selectedYear =
+      typeof year === "number" &&
+      Number.isInteger(year) &&
+      year >= 1970 &&
+      year <= currentYear + 1
+        ? year
+        : currentYear;
 
-    const onlinePayments = allPayments
-      .filter((p) => p.paymentMethod === "online")
-      .reduce((sum, p) => sum + p.amount, 0);
+    const sumAmount = (rows: typeof allPayments) =>
+      rows.reduce((sum, p) => sum + (p.amount || 0), 0);
 
-    const thisMonthIncome = allPayments
-      .filter((p) => {
-        const d = new Date(p.date);
-        return d.getFullYear() === currentYear && d.getMonth() === currentMonth;
-      })
-      .reduce((sum, p) => sum + p.amount, 0);
+    const cashInHand = sumAmount(
+      allPayments.filter((p) => p.paymentMethod === "cash"),
+    );
+    const onlinePayments = sumAmount(
+      allPayments.filter((p) => p.paymentMethod === "online"),
+    );
 
-    const thisYearIncome = allPayments
-      .filter((p) => new Date(p.date).getFullYear() === currentYear)
-      .reduce((sum, p) => sum + p.amount, 0);
+    // Bucket by the receipt date (`payments.date`), compared as a YYYY-MM
+    // string so no timezone can shift a payment into a neighbouring month.
+    const thisMonthPayments = allPayments.filter(
+      (p) => toMonthKey(p.date) === currentMonthKey,
+    );
+    const thisYearPayments = allPayments.filter((p) =>
+      toMonthKey(p.date).startsWith(String(currentYear)),
+    );
+    const selectedYearPayments = allPayments.filter((p) =>
+      toMonthKey(p.date).startsWith(String(selectedYear)),
+    );
 
-    const totalOverallIncome = allPayments.reduce((sum, p) => sum + p.amount, 0);
+    const thisMonthIncome = sumAmount(thisMonthPayments);
+    const thisYearIncome = sumAmount(thisYearPayments);
+    const selectedYearIncome = sumAmount(selectedYearPayments);
+    const totalOverallIncome = sumAmount(allPayments);
+
+    // Newest first, and always include the current year so the dropdown always
+    // has an entry to show even before any payment has been recorded.
+    const availableYears = Array.from(
+      new Set([
+        currentYear,
+        ...allPayments.map((p) => Number(toMonthKey(p.date).slice(0, 4))),
+      ]),
+    )
+      .filter((y) => Number.isInteger(y) && y > 0)
+      .sort((a, b) => b - a);
 
     const monthNames = [
       "January", "February", "March", "April", "May", "June",
@@ -1013,20 +1191,19 @@ export class DrizzleStorage implements IStorage {
     ];
 
     const monthlyBreakdown = monthNames.map((month, index) => {
-      const monthPayments = allPayments.filter((p) => {
-        const d = new Date(p.date);
-        return d.getFullYear() === currentYear && d.getMonth() === index;
-      });
+      const monthPayments = allPayments.filter(
+        (p) => toMonthKey(p.date) === monthKeyFor(selectedYear, index),
+      );
       return {
         month,
-        amount: monthPayments.reduce((sum, p) => sum + p.amount, 0),
+        amount: sumAmount(monthPayments),
         paymentCount: monthPayments.length,
       };
     });
 
     const monthsWithData = monthlyBreakdown.filter((m) => m.paymentCount > 0).length;
     const averageMonthlyIncome = monthsWithData > 0
-      ? Math.round(thisYearIncome / monthsWithData)
+      ? Math.round(selectedYearIncome / monthsWithData)
       : 0;
 
     return {
@@ -1034,10 +1211,17 @@ export class DrizzleStorage implements IStorage {
       onlinePayments,
       thisMonthIncome,
       thisYearIncome,
+      selectedYear,
+      selectedYearIncome,
+      availableYears,
       totalOverallIncome,
       monthlyBreakdown,
       averageMonthlyIncome,
-      totalPaymentsReceived: allPayments.length,
+      // Count of payments received THIS month, keyed off the receipt date.
+      thisMonthPaymentsReceived: thisMonthPayments.length,
+      thisYearPaymentsReceived: thisYearPayments.length,
+      totalPaymentsReceived: thisMonthPayments.length,
+      allTimePaymentsReceived: allPayments.length,
     };
   }
 }

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { formatDate } from "@/lib/format";
+import { formatDate, todayDateOnly } from "@/lib/format";
 import { useReadOnly } from "@/lib/read-only";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,17 +22,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Pencil, Trash2, History, Banknote, CreditCard } from "lucide-react";
+import { Pencil, Trash2, History, Banknote, CreditCard, Search } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Payment } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { formatDuration } from "@shared/duration";
+import { formatDuration, toDateOnly } from "@shared/duration";
 import { DurationPicker } from "@/components/duration-picker";
 import {
   Select,
@@ -55,6 +53,11 @@ export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  // Defaults to today so the tab opens on the day's records. An empty string
+  // still means "unbounded" on that end, so clearing a box widens the view.
+  const [fromDate, setFromDate] = useState(todayDateOnly());
+  const [toDate, setToDate] = useState(todayDateOnly());
+  const [searchQuery, setSearchQuery] = useState("");
   // Admin viewing this vendor's panel in Read Only mode — records are untouchable.
   const readOnly = useReadOnly();
   const { toast } = useToast();
@@ -63,10 +66,34 @@ export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
     queryKey: ["/api/payments"],
   });
 
+  // A reversed range is a common slip; treat it as the same window rather than
+  // silently returning nothing.
+  const reversed = Boolean(fromDate && toDate && fromDate > toDate);
+  const rangeStart = reversed ? toDate : fromDate;
+  const rangeEnd = reversed ? fromDate : toDate;
+
+  const filteredPayments = payments?.filter((payment) => {
+    const needle = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !needle ||
+      payment.studentName.toLowerCase().includes(needle) ||
+      payment.registerNo.toLowerCase().includes(needle) ||
+      payment.tokenNumber.toLowerCase().includes(needle);
+    // `payments.date` is a Postgres date column, already "YYYY-MM-DD", so
+    // lexicographic string comparison is an exact, timezone-proof date range.
+    return (
+      matchesSearch &&
+      (!rangeStart || payment.date >= rangeStart) &&
+      (!rangeEnd || payment.date <= rangeEnd)
+    );
+  });
+
+  const isFiltered = Boolean(rangeStart || rangeEnd || searchQuery.trim());
+
   const form = useForm<EditPaymentValues>({
     resolver: zodResolver(editPaymentSchema),
     defaultValues: {
-      date: new Date().toISOString().split("T")[0],
+      date: toDateOnly(new Date()),
       duration: 1,
       amount: 0,
       paymentMethod: "cash",
@@ -128,9 +155,70 @@ export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Payment Records</CardTitle>
-          <CardDescription>Click edit to modify or delete payments</CardDescription>
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
+          <div className="space-y-1.5">
+            <CardTitle>Payment Records</CardTitle>
+            <CardDescription>
+              {isFiltered
+                ? `Showing ${filteredPayments?.length ?? 0} of ${payments?.length ?? 0} records`
+                : "Click edit to modify or delete payments"}
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1">
+              <label
+                htmlFor="filter-search"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Search
+              </label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="filter-search"
+                  placeholder="Name, member ID or token..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  data-testid="input-search-payments"
+                  className="h-9 w-[14rem] pl-8"
+                />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <label
+                htmlFor="filter-from"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                From
+              </label>
+              <Input
+                id="filter-from"
+                type="date"
+                value={fromDate}
+                max={rangeEnd || undefined}
+                onChange={(e) => setFromDate(e.target.value)}
+                data-testid="input-filter-from"
+                className="h-9 w-[9.5rem]"
+              />
+            </div>
+            <div className="space-y-1">
+              <label
+                htmlFor="filter-to"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                To
+              </label>
+              <Input
+                id="filter-to"
+                type="date"
+                value={toDate}
+                min={rangeStart || undefined}
+                onChange={(e) => setToDate(e.target.value)}
+                data-testid="input-filter-to"
+                className="h-9 w-[9.5rem]"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {isLoading ? (
@@ -139,7 +227,7 @@ export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
                 <Skeleton key={i} className="h-12 w-full" />
               ))}
             </div>
-          ) : payments && payments.length > 0 ? (
+          ) : filteredPayments && filteredPayments.length > 0 ? (
             <div className="rounded-md border">
               <Table className="min-w-[820px]">
                 <TableHeader>
@@ -155,7 +243,7 @@ export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {payments.map((payment) => (
+                  {filteredPayments.map((payment) => (
                     <TableRow key={payment.id} data-testid={`row-payment-${payment.id}`}>
                       <TableCell className="font-medium">{payment.tokenNumber}</TableCell>
                       <TableCell>{formatDate(payment.date)}</TableCell>
@@ -218,6 +306,13 @@ export default function ModifyPayments({ isAdmin }: { isAdmin: boolean }) {
             <div className="text-center py-12 text-muted-foreground">
               <History className="h-12 w-12 mx-auto mb-4 opacity-20" />
               <p>No payment records found</p>
+              {isFiltered ? (
+                <p className="text-sm mt-1">
+                  {searchQuery.trim()
+                    ? "No records match your search in this date range. Clear the filters to see all records."
+                    : "Nothing recorded in that date range. Clear the filter to see all records."}
+                </p>
+              ) : null}
             </div>
           )}
         </CardContent>

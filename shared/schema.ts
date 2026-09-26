@@ -236,6 +236,9 @@ export const vendorServicePlans = pgTable("vendor_service_plans", {
   method: varchar("method", { length: 20 }).notNull().default("per_user"), // 'per_user' or 'fixed'
   perUserCharge: integer("per_user_charge").notNull().default(1), // rupees charged per user
   defaultPrice: integer("default_price").notNull().default(199), // minimum service charge
+  // Per-vendor platform fee. NULL = fall back to the global default in
+  // platform_settings, so individual gyms can be charged differently.
+  platformFee: integer("platform_fee"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -257,6 +260,12 @@ export const insertVendorServicePlanSchema = createInsertSchema(
       .number()
       .int()
       .min(0, "Default price cannot be negative"),
+    platformFee: z.coerce
+      .number()
+      .int()
+      .min(0, "Platform fee cannot be negative")
+      .nullable()
+      .optional(),
   });
 
 export type InsertVendorServicePlan = z.infer<
@@ -298,7 +307,8 @@ export const membershipPlans = pgTable("membership_plans", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Plans seeded for gyms that haven't configured any yet.
+// Starter plans (1 Month / 3 Month / 1 Year). Not seeded automatically any
+// more — kept as an optional starting point for a future "add default plans".
 export const DEFAULT_MEMBERSHIP_PLANS = [
   {
     name: "1 Month",

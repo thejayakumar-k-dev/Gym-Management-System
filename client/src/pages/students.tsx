@@ -23,13 +23,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Users, AlertCircle, CheckCircle, Search, X } from "lucide-react";
+import { Plus, Pencil, Trash2, Users, AlertCircle, CheckCircle, Search, X, Download, Upload } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { MemberBatch, Student } from "@shared/schema";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertStudentSchema, NAME_REGEX, PHONE_REGEX } from "@shared/schema";
-import { isMembershipExpired } from "@shared/duration";
+import { isMembershipExpired, toDateOnly } from "@shared/duration";
 import { formatDate } from "@/lib/format";
 import { useReadOnly } from "@/lib/read-only";
 import { z } from "zod";
@@ -41,6 +41,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ImportStudentsDialog } from "@/components/import-students-dialog";
 
 const formSchema = insertStudentSchema;
 
@@ -69,6 +70,7 @@ type AttendanceFeedback = {
 
 export default function Students({ isAdmin }: { isAdmin: boolean }) {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [memberFilter, setMemberFilter] = useState<MemberFilter>("all");
@@ -302,6 +304,75 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
     return Math.max(0, diff);
   };
 
+  // The export is only offered from the "All" members tab. Picking a narrower
+  // tab (Active / Expiring / Morning / Evening) is for on-screen review, so the
+  // button is hidden there and the full member list is the only thing exported.
+  const canExport = memberFilter === "all";
+  const exportableStudents = filteredStudents ?? [];
+
+  const handleExportCSV = () => {
+    if (exportableStudents.length === 0) {
+      toast({
+        title: "No members to export",
+        description: "No members match the current filter",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Quote every field and double up any inner quotes, otherwise a name or
+    // address containing a comma silently shifts every later column.
+    const escapeCell = (value: string | number | null | undefined) => {
+      const text = value == null ? "" : String(value);
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+
+    const headers = [
+      "Member ID",
+      "Name",
+      "Batch",
+      "Phone",
+      "Address",
+      "Join Date",
+      "Expiry Date",
+      "Days Left",
+      "Status",
+    ];
+    const rows = exportableStudents.map((student) =>
+      [
+        student.registerNo,
+        student.name,
+        getBatchLabel(student.batch),
+        student.phone,
+        student.address,
+        student.joinDate,
+        student.expiryDate,
+        getDaysLeft(student.expiryDate),
+        getStatus(student.expiryDate),
+      ]
+        .map(escapeCell)
+        .join(","),
+    );
+
+    // BOM so Excel opens the ₹/UTF-8 names correctly instead of mojibake.
+    const csvContent = "﻿" + [headers.map(escapeCell).join(","), ...rows].join("\r\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `students_${memberFilter}_${toDateOnly(new Date())}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+
+    toast({
+      title: "CSV exported successfully",
+      description: `${exportableStudents.length} member(s) exported`,
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -310,41 +381,66 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           <p className="text-sm text-muted-foreground mt-1">Manage gym members</p>
         </div>
         {!readOnly && (
-          <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto" data-testid="button-add-student">
-            <Plus className="mr-2 h-4 w-4" />
-            Add Student
-          </Button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Button
+              onClick={() => setIsImportOpen(true)}
+              variant="outline"
+              className="w-full sm:w-auto dark:text-white"
+              data-testid="button-import-students"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              Import Students
+            </Button>
+            <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto" data-testid="button-add-student">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Student
+            </Button>
+          </div>
         )}
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
           <div className="min-w-0">
             <CardTitle>Members List</CardTitle>
             <CardDescription>View and manage all gym members</CardDescription>
           </div>
-          <div
-            className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted p-1"
-            role="tablist"
-            aria-label="Filter members by membership or batch"
-          >
-            {MEMBER_FILTERS.map((filter) => (
-              <button
-                key={filter.value}
-                type="button"
-                role="tab"
-                aria-selected={memberFilter === filter.value}
-                onClick={() => setMemberFilter(filter.value)}
-                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-                  memberFilter === filter.value
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                data-testid={`filter-${filter.value}`}
+          <div className="flex flex-wrap items-center gap-3">
+            {canExport && (
+              <Button
+                onClick={handleExportCSV}
+                variant="outline"
+                className="h-9 dark:text-white"
+                disabled={exportableStudents.length === 0}
+                data-testid="button-export-csv"
               >
-                {filter.label}
-              </button>
-            ))}
+                <Download className="mr-2 h-4 w-4" />
+                Export CSV
+              </Button>
+            )}
+            <div
+              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-muted p-1"
+              role="tablist"
+              aria-label="Filter members by membership or batch"
+            >
+              {MEMBER_FILTERS.map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={memberFilter === filter.value}
+                  onClick={() => setMemberFilter(filter.value)}
+                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                    memberFilter === filter.value
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                  data-testid={`filter-${filter.value}`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -601,6 +697,17 @@ export default function Students({ isAdmin }: { isAdmin: boolean }) {
           </Form>
         </DialogContent>
       </Dialog>
+
+      <ImportStudentsDialog
+        open={isImportOpen}
+        onOpenChange={setIsImportOpen}
+        nextRegisterNo={nextRegisterNo}
+        onImported={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/students"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/dashboard/stats"] });
+          toast({ title: "Student import finished" });
+        }}
+      />
 
       <Dialog open={deleteConfirmId !== null} onOpenChange={(open) => !open && setDeleteConfirmId(null)}>
         <DialogContent data-testid="dialog-delete-confirm">

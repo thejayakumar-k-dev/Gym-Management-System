@@ -3,8 +3,105 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage.js";
 import { log } from "./logger.js";
 import { getDb, type DrizzleDB } from "./db.js";
-import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, insertMembershipPlanSchema } from "../shared/schema.js";
+import { insertStudentSchema, insertPaymentSchema, insertAttendanceSchema, insertVendorSchema, insertVendorAccountSchema, insertVendorNeonProjectSchema, insertVendorServicePlanSchema, insertPlatformSettingsSchema, insertMembershipPlanSchema, type MemberBatch } from "../shared/schema.js";
 import { addMonths } from "../shared/duration.js";
+import { z } from "zod";
+
+/**
+ * Bulk student import.
+ *
+ * Capped at 1000 rows: the whole file is validated and inserted in one request,
+ * so an unbounded array would be a cheap way for a client to pin the event loop
+ * and hold a transaction open.
+ */
+const MAX_IMPORT_ROWS = 1000;
+
+const importStudentsBodySchema = z.object({
+  students: z
+    .array(z.record(z.any()))
+    .min(1, "No rows to import")
+    .max(MAX_IMPORT_ROWS, `Cannot import more than ${MAX_IMPORT_ROWS} students at a time`),
+});
+
+type ImportRowResult = {
+  /** 1-based spreadsheet row number, header included. */
+  row: number;
+  registerNo: string;
+  name: string;
+  status: "success" | "failed";
+  error?: string;
+};
+
+/**
+ * `join_date` is a Postgres DATE column and everything downstream —
+ * `isMembershipExpired`, `getDaysLeft`, date filters, sorting — treats it as
+ * ISO `YYYY-MM-DD`. The zod schema types it as a plain string with no format
+ * check, so a spreadsheet cell has to be parsed and normalised here or it would
+ * sail through validation and then blow up as an opaque per-row database error,
+ * or worse, be stored as literal "15-01-2026" and never compare correctly again.
+ *
+ * The template asks for day-month-year, which is how people in this locale read
+ * a date, so `DD-MM-YYYY` is the documented form. `DD/MM/YYYY` is accepted
+ * because nobody types a hyphen when they mean a slash, and `YYYY-MM-DD` is
+ * kept so templates downloaded before this change still import.
+ *
+ * `DD-MM` is deliberately never read as `MM-DD`: guessing would silently turn a
+ * membership expiry into a different month.
+ */
+const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DAY_FIRST_DATE_PATTERN = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/;
+
+/** Rejects well-shaped but impossible dates like 31-02-2026 or month 13. */
+function isRealCalendarDate(year: number, month: number, day: number): boolean {
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const probe = new Date(Date.UTC(year, month - 1, day));
+  return (
+    probe.getUTCFullYear() === year &&
+    probe.getUTCMonth() === month - 1 &&
+    probe.getUTCDate() === day
+  );
+}
+
+type ParsedImportDate = { iso: string } | { error: string };
+
+function normaliseImportDate(value: unknown, label: string): ParsedImportDate | null {
+  const raw = String(value ?? "").trim();
+
+  const iso = ISO_DATE_PATTERN.exec(raw);
+  if (iso) {
+    const [, year, month, day] = iso;
+    if (!isRealCalendarDate(+year, +month, +day)) {
+      return { error: `${label} "${raw}" is not a real date` };
+    }
+    return { iso: `${year}-${month}-${day}` };
+  }
+
+  const dayFirst = DAY_FIRST_DATE_PATTERN.exec(raw);
+  if (dayFirst) {
+    const [, day, month, year] = dayFirst;
+    if (!isRealCalendarDate(+year, +month, +day)) {
+      return { error: `${label} "${raw}" is not a real date` };
+    }
+    return {
+      iso: `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`,
+    };
+  }
+
+  return { error: `${label} must be DD-MM-YYYY, for example 15-01-2026` };
+}
+
+/**
+ * Map whatever a spreadsheet put in the Batch column onto a real batch.
+ * Returns null for a value we can't interpret so the row can be reported
+ * rather than silently defaulting to "morning".
+ */
+function normaliseBatch(value: unknown): MemberBatch | null {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "") return "morning";
+  if (raw === "morning" || raw === "m" || raw === "am") return "morning";
+  if (raw === "evening" || raw === "e" || raw === "pm") return "evening";
+  return null;
+}
 
 function isAdminRequest(req: Request): boolean {
   const adminUid = process.env.VITE_ADMIN_UID || process.env.ADMIN_UID;
@@ -107,6 +204,99 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(409).json({ error: "Member ID already exists" });
       }
       res.status(500).json({ error: "Failed to create student" });
+    }
+  });
+
+  app.post("/api/students/import", async (req, res) => {
+    try {
+      // The envelope only checks the shape of the batch. Each row is validated
+      // individually below so one bad member can't fail the whole file.
+      const parsed = importStudentsBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid import payload", details: parsed.error.errors });
+      }
+
+      const rows = parsed.data.students;
+      const vdb = await resolveVendorDb(req);
+
+      const results: ImportRowResult[] = [];
+      let imported = 0;
+
+      // Sequential rather than one bulk INSERT: every row needs its own
+      // validation verdict and its own duplicate-key attribution, and a gym's
+      // import is tens to low hundreds of rows, not millions.
+      for (let index = 0; index < rows.length; index++) {
+        // +1 for the header row, +1 to make it 1-based like a spreadsheet.
+        const rowNumber = index + 2;
+        const row = rows[index];
+        const registerNo = String(row.registerNo ?? "").trim();
+        const name = String(row.name ?? "").trim();
+        const fail = (error: string) =>
+          results.push({ row: rowNumber, registerNo, name, status: "failed", error });
+
+        const batch = normaliseBatch(row.batch);
+        if (batch === null) {
+          fail("Batch must be Morning or Evening");
+          continue;
+        }
+
+        const joinDateCell = String(row.joinDate ?? "").trim();
+        if (joinDateCell === "") {
+          fail("Join Date is required");
+          continue;
+        }
+        const parsedJoinDate = normaliseImportDate(joinDateCell, "Join Date");
+        if (parsedJoinDate === null) {
+          fail("Join Date is required");
+          continue;
+        }
+        if ("error" in parsedJoinDate) {
+          fail(parsedJoinDate.error);
+          continue;
+        }
+        const joinDate = parsedJoinDate.iso;
+
+        const validated = insertStudentSchema.safeParse({
+          registerNo,
+          name,
+          batch,
+          phone: String(row.phone ?? "").trim(),
+          address: String(row.address ?? "").trim(),
+          joinDate,
+        });
+        if (!validated.success) {
+          fail(validated.error.errors[0]?.message ?? "Invalid student data");
+          continue;
+        }
+
+        try {
+          // Expiry is owned by payments, not by the import, so it always starts
+          // empty: the member shows as Pay Required with 0 days left until a
+          // payment sets a real expiry. An Expiry Date column left over in an
+          // older file is ignored rather than trusted against payment history.
+          await storage.createStudent(
+            { ...validated.data, expiryDate: null },
+            vdb,
+          );
+          imported++;
+          results.push({ row: rowNumber, registerNo, name, status: "success" });
+        } catch (error: any) {
+          fail(
+            isUniqueViolation(error)
+              ? "Member ID already exists"
+              : "Failed to save student",
+          );
+        }
+      }
+
+      res.json({
+        total: rows.length,
+        imported,
+        failed: rows.length - imported,
+        results,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to import students" });
     }
   });
 
@@ -342,7 +532,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ error: "Vendor account not found" });
       }
 
-      const remainingCredits = account.creditDays - account.usedCredits;
+      const remainingCredits = Math.max(account.creditDays - account.usedCredits, 0);
       res.json({
         account,
         remainingCredits,
@@ -350,6 +540,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to consume vendor credit" });
+    }
+  });
+
+  // Force the daily day-billing sweep for every account and report how many
+  // balances were touched. The sweep also runs lazily on every read, so this is
+  // only needed to settle days without waiting for someone to open the tab.
+  app.post("/api/vendor-accounts/run-billing", async (_req, res) => {
+    try {
+      const updated = await storage.runDailyVendorBilling();
+      res.json({ updated, ranAt: new Date().toISOString() });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to run vendor billing" });
     }
   });
 
@@ -482,20 +684,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         vendorId,
       });
+      // Platform fee is stored per vendor (NULL → global default), so saving
+      // one vendor's plan no longer changes the fee for every other vendor.
       await storage.upsertVendorServicePlan(vendorId, {
         method: parsed.method,
         perUserCharge: parsed.perUserCharge,
         defaultPrice: parsed.defaultPrice,
+        platformFee: parsed.platformFee ?? null,
       });
-
-      if (req.body?.platformFee !== undefined) {
-        const platform = insertPlatformSettingsSchema.parse({
-          platformFee: req.body.platformFee,
-        });
-        await storage.updatePlatformSettings({
-          platformFee: platform.platformFee,
-        });
-      }
 
       const summary = await storage.getVendorServiceCharge(vendorId);
       res.json(summary);
@@ -703,7 +899,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Income stats
   app.get("/api/income/stats", async (req, res) => {
     try {
-      const stats = await storage.getIncomeStats(await resolveVendorDb(req));
+      // `?year=` scopes the year-based figures; absent or invalid means the
+      // current year (getIncomeStats sanitises it).
+      const rawYear = Number(req.query.year);
+      const year =
+        req.query.year != null && String(req.query.year).trim() !== "" && Number.isInteger(rawYear)
+          ? rawYear
+          : undefined;
+      const stats = await storage.getIncomeStats(await resolveVendorDb(req), year);
       res.json(stats);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch income stats" });
@@ -713,8 +916,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Attendance endpoints
   app.get("/api/attendance", async (req, res) => {
     try {
-      const date = req.query.date as string || new Date().toISOString().split("T")[0];
-      const records = await storage.getAttendanceByDate(date, await resolveVendorDb(req));
+      const vdb = await resolveVendorDb(req);
+      const today = new Date().toISOString().split("T")[0];
+      const from = (req.query.from as string) || undefined;
+      const to = (req.query.to as string) || undefined;
+
+      // `?from=&to=` is a range (inclusive); `?date=` stays supported as the
+      // single-day form the attendance pad and older clients use.
+      if (from || to) {
+        const records = await storage.getAttendanceInRange(
+          from || to!,
+          to || from!,
+          vdb,
+        );
+        return res.json(records);
+      }
+
+      const date = (req.query.date as string) || today;
+      const records = await storage.getAttendanceByDate(date, vdb);
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch attendance records" });

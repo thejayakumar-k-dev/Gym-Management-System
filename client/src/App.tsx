@@ -82,8 +82,11 @@ function AuthenticatedApp({
     const match = location.match(/^\/vendors\/(\d+)/);
     if (match) {
       sessionStorage.setItem("admin_active_vendor_id", match[1]);
+      // Drop any cached admin-panel / other-vendor data so the vendor panel
+      // never renders another tenant's rows (staleTime is Infinity).
+      queryClient.clear();
       setImpersonatedVendorId(match[1]);
-      setLocation("/");
+      setLocation("/", { replace: true });
     }
   }, [location, setLocation]);
 
@@ -121,6 +124,15 @@ function AuthenticatedApp({
     enabled: !!vendorPhone && !isAdmin,
   });
 
+  // Theme scoping. The admin's own preference applies everywhere the admin is
+  // acting — both the admin panel and any vendor they impersonate — so
+  // "Open as Vendor" always matches what the admin is looking at. Real vendors
+  // each get their own key (the phone number they sign in with), so two
+  // vendors sharing a machine never inherit each other's preference.
+  const themeStorageKey = isAdmin
+    ? "theme:admin"
+    : `theme:vendor:${vendorPhone ?? user.id}`;
+
   if (redirectFromAdminRoute) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-gray-50 text-sm text-gray-500">
@@ -131,6 +143,8 @@ function AuthenticatedApp({
 
   const handleExitVendorMode = () => {
     sessionStorage.removeItem("admin_active_vendor_id");
+    // Fresh cache for the admin panel — and for the next vendor we open.
+    queryClient.clear();
     setReadOnly(false);
     setImpersonatedVendorId(null);
     setLocation("/admin/vendors");
@@ -139,10 +153,10 @@ function AuthenticatedApp({
   // Admin users default to the dedicated admin panel when not impersonating a vendor.
   if (isAdmin && !impersonatedVendorId) {
     return (
-      <>
+      <ThemeProvider key={themeStorageKey} defaultTheme="light" storageKey={themeStorageKey}>
         <AdminPanel />
         <Toaster />
-      </>
+      </ThemeProvider>
     );
   }
 
@@ -159,7 +173,7 @@ function AuthenticatedApp({
   };
 
   return (
-    <ThemeProvider defaultTheme="light">
+    <ThemeProvider key={themeStorageKey} defaultTheme="light" storageKey={themeStorageKey}>
       <GymNameContext.Provider value={vendorDisplayName ?? "GymDesk"}>
         <ReadOnlyContext.Provider value={inVendorPanel && readOnly}>
 <TooltipProvider>
@@ -184,7 +198,7 @@ function AuthenticatedApp({
                           <ShieldCheck className="h-3.5 w-3.5 text-amber-600" />
                           <span>Admin View</span>
                         </Badge>
-                        <span className="text-sm font-semibold text-gray-700 truncate hidden md:inline">
+                        <span className="text-sm font-semibold text-gray-700 dark:text-white truncate hidden md:inline">
                           {vendorDisplayName}
                         </span>
                       </div>
@@ -328,7 +342,7 @@ function App() {
 
   if (!user) {
     return (
-      <ThemeProvider defaultTheme="light">
+      <ThemeProvider defaultTheme="light" storageKey="theme:login">
         <LoginPage onLogin={() => {
           // onAuthStateChange will automatically fire and set user — no manual call needed
         }} />

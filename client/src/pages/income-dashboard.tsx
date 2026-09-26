@@ -1,14 +1,27 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Wallet, CreditCard, TrendingUp, Calendar, IndianRupee } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Label } from "@/components/ui/label";
+import { authHeaders } from "@/lib/queryClient";
 
 interface IncomeStats {
   cashInHand: number;
   onlinePayments: number;
   thisMonthIncome: number;
   thisYearIncome: number;
+  selectedYear: number;
+  selectedYearIncome: number;
+  availableYears: number[];
   totalOverallIncome: number;
   monthlyBreakdown: {
     month: string;
@@ -17,22 +30,62 @@ interface IncomeStats {
   }[];
   averageMonthlyIncome: number;
   totalPaymentsReceived: number;
+  thisMonthPaymentsReceived: number;
+  allTimePaymentsReceived: number;
 }
 
 
 export default function IncomeDashboard() {
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState(currentYear);
+
+  // Keyed as ["<path>", year] so the existing
+  // invalidateQueries({ queryKey: ["/api/income/stats"] }) prefix match in
+  // modify-payments.tsx still reaches this query.
   const { data: stats, isLoading } = useQuery<IncomeStats>({
-    queryKey: ["/api/income/stats"],
+    queryKey: ["/api/income/stats", selectedYear],
+    queryFn: async () => {
+      const res = await fetch(`/api/income/stats?year=${selectedYear}`, {
+        headers: await authHeaders(),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to fetch income stats");
+      return res.json();
+    },
   });
 
-  const currentYear = new Date().getFullYear();
   const currentMonth = new Date().toLocaleString("default", { month: "long" });
+  const activeYear = stats?.selectedYear ?? selectedYear;
+  const years = stats?.availableYears?.length ? stats.availableYears : [currentYear];
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">Income Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Track your gym revenue and earnings</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-foreground">Income Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">Track your gym revenue and earnings</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Label htmlFor="filter-year" className="text-sm text-muted-foreground whitespace-nowrap">
+            Year
+          </Label>
+          <Select
+            value={String(selectedYear)}
+            onValueChange={(value) => setSelectedYear(Number(value))}
+          >
+            <SelectTrigger id="filter-year" className="w-32" data-testid="select-income-year">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {years.map((year) => (
+                <SelectItem key={year} value={String(year)}>
+                  {year}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -106,9 +159,11 @@ export default function IncomeDashboard() {
             <div>
               <CardTitle className="text-sm font-medium text-blue-800 dark:text-blue-200 flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
-                This Year Income
+                {activeYear} Income
               </CardTitle>
-              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">{currentYear}</p>
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                {activeYear === currentYear ? "This year so far" : "Selected year"}
+              </p>
             </div>
           </CardHeader>
           <CardContent>
@@ -116,7 +171,7 @@ export default function IncomeDashboard() {
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-blue-900 dark:text-blue-100" data-testid="text-this-year-income">
-                ₹ {(stats?.thisYearIncome ?? 0).toLocaleString("en-IN")}
+                ₹ {(stats?.selectedYearIncome ?? 0).toLocaleString("en-IN")}
               </p>
             )}
           </CardContent>
@@ -146,7 +201,7 @@ export default function IncomeDashboard() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Monthly Breakdown ({currentYear})</CardTitle>
+          <CardTitle>Monthly Breakdown ({activeYear})</CardTitle>
           <CardDescription>Revenue breakdown by month</CardDescription>
         </CardHeader>
         <CardContent>
@@ -177,11 +232,11 @@ export default function IncomeDashboard() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
           <CardHeader>
             <CardTitle className="text-black dark:text-white">Average Monthly Income</CardTitle>
-            <CardDescription>Based on {currentYear} data</CardDescription>
+            <CardDescription>Based on {activeYear} data</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -195,17 +250,38 @@ export default function IncomeDashboard() {
           </CardContent>
         </Card>
 
+        <Card className="bg-teal-50 dark:bg-teal-950/20 border-teal-200 dark:border-teal-900">
+          <CardHeader>
+            <CardTitle className="text-black dark:text-white">This Month Total Payments Received</CardTitle>
+            <CardDescription>
+              {currentMonth} {currentYear} — payment count
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-10 w-32" />
+            ) : (
+              <p className="text-3xl font-bold text-black dark:text-white flex items-center gap-1" data-testid="text-this-month-payments-received">
+                <span className="text-green-600">₹</span>
+                {(stats?.thisMonthPaymentsReceived ?? 0).toLocaleString("en-IN")}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900">
           <CardHeader>
             <CardTitle className="text-black dark:text-white">Total Payments Received</CardTitle>
-            <CardDescription>All time payment count</CardDescription>
+            <CardDescription>
+              {currentMonth} {currentYear} — payment count
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
               <Skeleton className="h-10 w-32" />
             ) : (
               <p className="text-3xl font-bold text-black dark:text-white flex items-center gap-1" data-testid="text-total-payments">
-                <span className="text-blue-600 dark:text-blue-400">₹</span>
+                <span className="text-green-600">₹</span>
                 {(stats?.totalPaymentsReceived ?? 0).toLocaleString("en-IN")}
               </p>
             )}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useLocation } from "wouter";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -169,6 +170,7 @@ const EMPTY_FORM: FormValues = {
 };
 
 export default function Vendors() {
+  const [, setLocation] = useLocation();
   const [search, setSearch] = useState("");
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [step, setStep] = useState(1);
@@ -387,17 +389,17 @@ export default function Vendors() {
           className="flex flex-col"
         >
           {/* ── Form header ── */}
-          <div className="shrink-0 rounded-xl border border-gray-200 bg-white overflow-hidden">
+          <div className="shrink-0 rounded-xl border border-border bg-card overflow-hidden">
             <div className="px-5 py-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50">
-                  <Store className="h-5 w-5 text-red-500" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-red-50 dark:bg-red-950/20">
+                  <Store className="h-5 w-5 text-red-500 dark:text-red-400" />
                 </div>
                 <div>
-                  <h2 className="text-base font-bold text-gray-900 leading-tight">
+                  <h2 className="text-base font-bold text-foreground leading-tight">
                     {editingVendor ? "Edit Vendor" : "Add Vendor"}
                   </h2>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-muted-foreground">
                     Step {step} of {STEPS.length} — {STEPS[step - 1].title}
                   </p>
                 </div>
@@ -406,7 +408,7 @@ export default function Vendors() {
                 variant="ghost"
                 size="icon"
                 onClick={closeForm}
-                className="text-gray-500 hover:text-gray-900"
+                className="text-muted-foreground hover:text-foreground"
                 title="Close"
                 data-testid="button-close-form"
               >
@@ -424,48 +426,48 @@ export default function Vendors() {
                     key={s.id}
                     className={`flex-1 min-w-[150px] flex items-center gap-3 rounded-xl border px-3 sm:px-4 py-3 transition-colors ${
                       isActive
-                        ? "border-red-200 bg-red-50"
+                        ? "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20"
                         : isDone
-                          ? "border-green-200 bg-green-50"
-                          : "border-gray-200 bg-white"
+                          ? "border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/20"
+                          : "border-border bg-card"
                     }`}
                   >
                     <div
                       className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${
                         isActive
-                          ? "bg-red-100 text-red-600"
+                          ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400"
                           : isDone
-                            ? "bg-green-100 text-green-600"
-                            : "bg-gray-100 text-gray-400"
+                            ? "bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400"
+                            : "bg-accent text-muted-foreground"
                       }`}
                     >
                       <Icon className="h-4 w-4" />
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[11px] uppercase tracking-wide font-semibold text-gray-400">
+                      <p className="text-[11px] uppercase tracking-wide font-semibold text-muted-foreground">
                         Step {s.id}
                       </p>
                       <p
                         className={`text-sm font-semibold truncate ${
                           isActive
-                            ? "text-red-700"
+                            ? "text-red-700 dark:text-red-300"
                             : isDone
-                              ? "text-green-700"
-                              : "text-gray-500"
+                              ? "text-green-700 dark:text-green-300"
+                              : "text-muted-foreground"
                         }`}
                       >
                         {s.title}
                       </p>
                     </div>
                     {i < STEPS.length - 1 && (
-                      <ChevronRight className="h-4 w-4 text-gray-300 shrink-0 ml-auto" />
+                      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 ml-auto" />
                     )}
                   </div>
                 );
               })}
             </div>
             {/* Progress bar */}
-            <div className="h-1 w-full bg-gray-100">
+            <div className="h-1 w-full bg-accent">
               <div
                 className="h-full bg-red-500 transition-all duration-300"
                 style={{ width: `${(step / STEPS.length) * 100}%` }}
@@ -478,12 +480,12 @@ export default function Vendors() {
             <div className="space-y-6 pb-6">
               {/* ════ STEP 1 — Personal Information ════ */}
               {step === 1 && (
-                <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
+                <div className="rounded-xl border border-border bg-card p-6 space-y-5">
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
+                    <h3 className="text-base font-bold text-foreground">
                       Personal Information
                     </h3>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted-foreground">
                       Basic contact details of the vendor
                     </p>
                   </div>
@@ -586,7 +588,7 @@ export default function Vendors() {
                             className="h-11" data-testid="input-password"
                           />
                         </FormControl>
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-muted-foreground">
                           {editingVendor
                             ? "Enter new password or leave blank to keep current"
                             : `Vendor uses ${"{phone}"}@gmail.com with this password to login`}
@@ -600,12 +602,12 @@ export default function Vendors() {
 
               {/* ════ STEP 2 — Business Information ════ */}
               {step === 2 && (
-                <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
+                <div className="rounded-xl border border-border bg-card p-6 space-y-5">
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
+                    <h3 className="text-base font-bold text-foreground">
                       Business Information
                     </h3>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted-foreground">
                       Business name is required, tax details are optional
                     </p>
                   </div>
@@ -668,12 +670,12 @@ export default function Vendors() {
 
               {/* ════ STEP 3 — Address Details ════ */}
               {step === 3 && (
-                <div className="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
+                <div className="rounded-xl border border-border bg-card p-6 space-y-5">
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
+                    <h3 className="text-base font-bold text-foreground">
                       Address Details
                     </h3>
-                    <p className="text-sm text-gray-500">
+                    <p className="text-sm text-muted-foreground">
                       Where the vendor is located
                     </p>
                   </div>
@@ -791,7 +793,7 @@ export default function Vendors() {
           </div>
 
           {/* ── Footer with actions (flows right after content) ── */}
-          <div className="mt-4 rounded-xl border border-gray-200 bg-white px-5 py-3">
+          <div className="mt-4 rounded-xl border border-border bg-card px-5 py-3">
             <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="w-full sm:w-auto">
                 {step > 1 ? (
@@ -806,7 +808,7 @@ export default function Vendors() {
                     Back
                   </Button>
                 ) : (
-                  <span className="text-xs text-gray-400 hidden sm:block">
+                  <span className="text-xs text-muted-foreground hidden sm:block">
                     Fields marked * are required
                   </span>
                 )}
@@ -862,8 +864,8 @@ export default function Vendors() {
       {/* ── Page header ── */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Vendors</h2>
-          <p className="text-sm text-gray-500">
+          <h2 className="text-xl font-bold text-foreground">Vendors</h2>
+          <p className="text-sm text-muted-foreground">
             Manage gym equipment and product suppliers
           </p>
         </div>
@@ -879,34 +881,34 @@ export default function Vendors() {
 
       {/* ── Search box ── */}
       <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
           placeholder="Search by name, phone, city or area..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="pl-10 bg-white"
+          className="pl-10 bg-card"
           data-testid="input-search-vendors"
         />
       </div>
 
       {/* ── Vendors table (fills remaining height, scrolls internally) ── */}
-      <div className="relative min-h-[300px] flex-1 overflow-auto rounded-xl border border-gray-200 bg-white [&_th]:border-r [&_th]:border-gray-200 [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-gray-100 [&_td:last-child]:border-r-0 [&_tbody_tr]:border-b [&_tbody_tr]:border-gray-100">
+      <div className="relative min-h-[300px] flex-1 overflow-auto rounded-xl border border-border bg-card [&_th]:border-r [&_th]:border-border [&_th:last-child]:border-r-0 [&_td]:border-r [&_td]:border-border [&_td:last-child]:border-r-0 [&_tbody_tr]:border-b [&_tbody_tr]:border-border">
         <Table className="min-w-[720px]">
           <TableHeader className="sticky top-0 z-10">
-            <TableRow className="bg-gray-50 hover:bg-gray-50 border-b border-gray-200">
-              <TableHead className="font-semibold text-gray-700">
+            <TableRow className="bg-muted hover:bg-accent border-b border-border">
+              <TableHead className="font-semibold text-foreground">
                 Vendor Name
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Contact
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Location
               </TableHead>
-              <TableHead className="font-semibold text-gray-700">
+              <TableHead className="font-semibold text-foreground">
                 Status
               </TableHead>
-              <TableHead className="font-semibold text-gray-700 text-right">
+              <TableHead className="font-semibold text-foreground text-right">
                 Actions
               </TableHead>
             </TableRow>
@@ -926,12 +928,12 @@ export default function Vendors() {
               <TableRow>
                 <TableCell colSpan={5} className="h-40 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <Store className="h-10 w-10 text-gray-300" />
-                    <p className="text-sm font-medium text-gray-500">
+                    <Store className="h-10 w-10 text-muted-foreground" />
+                    <p className="text-sm font-medium text-muted-foreground">
                       {search ? "No vendors match your search" : "No vendors yet"}
                     </p>
                     {!search && (
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-muted-foreground">
                         Click "Add Vendor" to create your first vendor
                       </p>
                     )}
@@ -943,24 +945,24 @@ export default function Vendors() {
                 <TableRow key={vendor.id} data-testid={`row-vendor-${vendor.id}`}>
                   <TableCell>
                     {vendor.businessName && (
-                      <div className="text-sm font-semibold text-gray-900">
+                      <div className="text-sm font-semibold text-foreground">
                         {vendor.businessName}
                       </div>
                     )}
-                    <div className={`text-sm ${vendor.businessName ? 'text-gray-500' : 'font-medium text-gray-900'}`}>
+                    <div className={`text-sm ${vendor.businessName ? 'text-muted-foreground' : 'font-medium text-foreground'}`}>
                       {vendor.firstName} {vendor.lastName}
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm font-medium text-gray-900">
+                    <div className="text-sm font-medium text-foreground">
                       {vendor.phone}
                     </div>
                     {vendor.email && (
-                      <div className="text-xs text-gray-500">{vendor.email}</div>
+                      <div className="text-xs text-muted-foreground">{vendor.email}</div>
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm text-gray-900 space-y-0.5">
+                    <div className="text-sm text-foreground space-y-0.5">
                       {vendor.addressLine1 && (
                         <div>{vendor.addressLine1}{vendor.addressLine2 ? `, ${vendor.addressLine2}` : ""}</div>
                       )}
@@ -968,7 +970,7 @@ export default function Vendors() {
                         <div>{vendor.areaName}</div>
                       )}
                       {[vendor.city, vendor.state, vendor.zipcode].filter(Boolean).join(", ") && (
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-muted-foreground">
                           {[vendor.city, vendor.state, vendor.zipcode].filter(Boolean).join(", ")}
                         </div>
                       )}
@@ -978,8 +980,8 @@ export default function Vendors() {
                     <Badge
                       className={
                         vendor.status === "active"
-                          ? "bg-green-100 text-green-700 hover:bg-green-100 border border-green-200"
-                          : "bg-gray-100 text-gray-500 hover:bg-gray-100 border border-gray-200"
+                          ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/30 border border-green-200 dark:border-green-900"
+                          : "bg-accent text-muted-foreground hover:bg-accent border border-border"
                       }
                       data-testid={`badge-status-${vendor.id}`}
                     >
@@ -992,7 +994,7 @@ export default function Vendors() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 text-gray-500 hover:text-gray-900"
+                          className="h-8 w-8 text-muted-foreground hover:text-foreground"
                           data-testid={`button-actions-${vendor.id}`}
                         >
                           <MoreVertical className="h-4 w-4" />
@@ -1004,7 +1006,7 @@ export default function Vendors() {
                           className="cursor-pointer gap-2"
                           data-testid={`menu-view-${vendor.id}`}
                         >
-                          <Eye className="h-4 w-4 text-gray-500" />
+                          <Eye className="h-4 w-4 text-muted-foreground" />
                           View Details
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -1012,22 +1014,22 @@ export default function Vendors() {
                           className="cursor-pointer gap-2"
                           data-testid={`menu-edit-${vendor.id}`}
                         >
-                          <Pencil className="h-4 w-4 text-gray-500" />
+                          <Pencil className="h-4 w-4 text-muted-foreground" />
                           Edit Vendor
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onSelect={() => {
                             sessionStorage.setItem("admin_active_vendor_id", String(vendor.id));
-                            window.open(`/vendors/${vendor.id}`, "_blank");
+                            setLocation(`/vendors/${vendor.id}`);
                           }}
                           onClick={() => {
                             sessionStorage.setItem("admin_active_vendor_id", String(vendor.id));
-                            window.open(`/vendors/${vendor.id}`, "_blank");
+                            setLocation(`/vendors/${vendor.id}`);
                           }}
                           className="cursor-pointer gap-2"
                           data-testid={`menu-open-${vendor.id}`}
                         >
-                          <ExternalLink className="h-4 w-4 text-gray-500" />
+                          <ExternalLink className="h-4 w-4 text-muted-foreground" />
                           Open as Vendor
                         </DropdownMenuItem>
                         <DropdownMenuItem
@@ -1035,7 +1037,7 @@ export default function Vendors() {
                           className="cursor-pointer gap-2"
                           data-testid={`menu-toggle-${vendor.id}`}
                         >
-                          <Ban className="h-4 w-4 text-red-500" />
+                          <Ban className="h-4 w-4 text-red-500 dark:text-red-400" />
                           {vendor.status === "active" ? "Inactivate" : "Activate"}
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -1056,7 +1058,7 @@ export default function Vendors() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Store className="h-5 w-5 text-red-500" />
+              <Store className="h-5 w-5 text-red-500 dark:text-red-400" />
               {viewingVendor?.firstName} {viewingVendor?.lastName}
             </DialogTitle>
             <DialogDescription>Vendor details</DialogDescription>
@@ -1066,34 +1068,34 @@ export default function Vendors() {
             <div className="space-y-4">
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
-                  <Phone className="h-4 w-4 text-gray-400 mt-0.5" />
+                  <Phone className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                       Phone
                     </p>
-                    <p className="text-sm text-gray-900">
+                    <p className="text-sm text-foreground">
                       {viewingVendor.phone}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <Mail className="h-4 w-4 text-gray-400 mt-0.5" />
+                  <Mail className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                       Email
                     </p>
-                    <p className="text-sm text-gray-900">
+                    <p className="text-sm text-foreground">
                       {viewingVendor.email || "—"}
                     </p>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <MapPin className="h-4 w-4 text-gray-400 mt-0.5" />
+                  <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                       Address
                     </p>
-                    <p className="text-sm text-gray-900">
+                    <p className="text-sm text-foreground">
                       {[
                         viewingVendor.addressLine1,
                         viewingVendor.addressLine2,
@@ -1108,12 +1110,12 @@ export default function Vendors() {
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
-                  <CalendarDays className="h-4 w-4 text-gray-400 mt-0.5" />
+                  <CalendarDays className="h-4 w-4 text-muted-foreground mt-0.5" />
                   <div>
-                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+                    <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                       Added On
                     </p>
-                    <p className="text-sm text-gray-900">
+                    <p className="text-sm text-foreground">
                       {formatDate(viewingVendor.createdAt)}
                     </p>
                   </div>
@@ -1123,14 +1125,14 @@ export default function Vendors() {
               <Separator />
 
               <div className="flex items-center justify-between">
-                <span className="text-xs text-gray-400 uppercase tracking-wide font-medium">
+                <span className="text-xs text-muted-foreground uppercase tracking-wide font-medium">
                   Status
                 </span>
                 <Badge
                   className={
                     viewingVendor.status === "active"
-                      ? "bg-green-100 text-green-700 hover:bg-green-100 border border-green-200"
-                      : "bg-gray-100 text-gray-500 hover:bg-gray-100 border border-gray-200"
+                      ? "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/30 border border-green-200 dark:border-green-900"
+                      : "bg-accent text-muted-foreground hover:bg-accent border border-border"
                   }
                 >
                   {viewingVendor.status === "active" ? "Active" : "Inactive"}
